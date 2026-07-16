@@ -17,5 +17,8 @@
     "smoke": "npm run smoke --prefix server && npm run smoke:tasks --prefix server && npm run smoke:wave1 --prefix server"
   },
   "author": "ITSYBIZZ",
-  "license": "UNLICENSED"
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "vite": "^8.1.5"
+  }
 }
