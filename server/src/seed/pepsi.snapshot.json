@@ -1,0 +1,218 @@
+{
+  "capturedAt": "2026-07-16",
+  "source": "https://pepsi.itsybizz.com (PEPSI · Project Execution & Program Services)",
+  "note": "Manual snapshot of the live portal. Replaced by the PEPSI API feed when available — same wire shape, POST /integrations/pepsi/sync.",
+  "projects": [
+    {
+      "externalId": "PRJ-2601",
+      "code": "PRJ-2601",
+      "name": "JCI ASRS & WMS",
+      "customerName": "Jain Cord Industries",
+      "location": "Faridabad, HR",
+      "workType": "HW+SW",
+      "contractValue": 26400000,
+      "pmName": "Pankaj Shukla",
+      "startDate": "2026-01-12",
+      "endDate": "2026-09-30",
+      "stageIndex": 6,
+      "stageName": "On-Ground Production Testing",
+      "health": "At Risk",
+      "spi": 0.91,
+      "cpi": 0.96,
+      "progress": 64,
+      "statusNote": "On-Ground Production Testing (SAT) underway. Bin-sensor re-verify from QA raised NCR-021 (closed). Throughput SAT window 18–21 Aug.",
+      "insightNote": "Production Testing gate has 1 open QA finding + WMS latency 2.3s vs <2s target. Each slip day compresses handover float.",
+      "milestones": [
+        { "name": "Design Freeze", "date": "2026-02-20", "status": "done" },
+        { "name": "Hardware FAT", "date": "2026-04-28", "status": "done" },
+        { "name": "SW QA Sign-off", "date": "2026-06-05", "status": "done" },
+        { "name": "SAT / Production Test", "date": "2026-08-21", "status": "active" },
+        { "name": "Handover", "date": "2026-09-30", "status": "pending" }
+      ],
+      "budgetLines": [
+        { "category": "Site Labour", "budget": 420000, "actual": 301000 },
+        { "category": "Travel", "budget": 180000, "actual": 122000 },
+        { "category": "Lodging & Food", "budget": 150000, "actual": 96500 },
+        { "category": "Consumables", "budget": 90000, "actual": 41200 }
+      ],
+      "openItems": { "ncrs": 0, "tasks": 4, "expenses": 1 },
+      "quotations": [
+        {
+          "externalId": "OPP-3006",
+          "title": "JCI Phase-2 — Conveyor Analytics",
+          "stage": "Qualified",
+          "estValue": 2400000,
+          "probability": 40,
+          "closeDate": "2026-09-05",
+          "owner": "Neha Sharma"
+        }
+      ],
+      "risks": [
+        {
+          "probability": "Med",
+          "impact": "High",
+          "description": "Client SAT window clash with JCI month-end dispatch peak"
+        }
+      ],
+      "team": [
+        { "name": "Pankaj Shukla", "role": "Project Manager" },
+        { "name": "Ravi Kant", "role": "Lead Engineer", "utilization": 85 },
+        { "name": "Deepak Yadav", "role": "Site Engineer", "utilization": 92 },
+        { "name": "Amit Bisht", "role": "Field Technician", "utilization": 78 }
+      ]
+    },
+    {
+      "externalId": "PRJ-2602",
+      "code": "PRJ-2602",
+      "name": "EKC SmartFactory Phase-2",
+      "customerName": "Everest Kanto Cylinder Ltd.",
+      "location": "Tarapur",
+      "workType": "SW",
+      "contractValue": 18500000,
+      "pmName": "Neha Sharma",
+      "startDate": "2026-02-02",
+      "endDate": "2026-08-15",
+      "stageIndex": 6,
+      "stageName": "On-Ground Production Testing",
+      "health": "On Track",
+      "spi": 1.02,
+      "cpi": 1.05,
+      "progress": 78,
+      "milestones": [
+        { "name": "72h Soak Test", "date": "2026-07-06", "status": "in_progress" }
+      ],
+      "quotations": [
+        {
+          "externalId": "OPP-3003",
+          "title": "EKC Plant-3 Vision Inspection",
+          "stage": "Negotiation",
+          "estValue": 7200000,
+          "probability": 70,
+          "closeDate": "2026-08-10",
+          "owner": "Neha Sharma"
+        }
+      ]
+    },
+    {
+      "externalId": "PRJ-2603",
+      "code": "PRJ-2603",
+      "name": "Sanmati Packaging IoT",
+      "customerName": "Sanmati Packaging",
+      "location": "Faridabad",
+      "workType": "HW+SW",
+      "contractValue": 3200000,
+      "pmName": "Ravi Kant",
+      "startDate": "2026-03-10",
+      "endDate": "2026-07-31",
+      "stageIndex": 7,
+      "stageName": "Adhoc Requirements & Execution",
+      "health": "On Track",
+      "spi": 1.0,
+      "cpi": 1.03,
+      "progress": 82,
+      "insightNote": "All production-test metrics green for 14 days. Recommend scheduling handover documentation pack this week.",
+      "milestones": [
+        { "name": "Adhoc & Punch-list", "date": "2026-07-10", "status": "in_progress" },
+        { "name": "Handover", "date": "2026-07-31", "status": "planned" }
+      ],
+      "quotations": [
+        {
+          "externalId": "OPP-3004",
+          "title": "Sanmati Line-2 IoT Expansion",
+          "stage": "Won",
+          "estValue": 2800000,
+          "probability": 100,
+          "closeDate": "2026-07-04",
+          "owner": "Rohit Malhotra"
+        }
+      ]
+    },
+    {
+      "externalId": "PRJ-2604",
+      "code": "PRJ-2604",
+      "name": "JPM Digitization Wave-3",
+      "customerName": "JP Minda Group",
+      "workType": "SW",
+      "contractValue": 6400000,
+      "pmName": "Neha Sharma",
+      "startDate": "2026-04-01",
+      "endDate": "2026-10-15",
+      "stageIndex": 3,
+      "stageName": "Software Development",
+      "health": "At Risk",
+      "spi": 0.88,
+      "cpi": 0.99,
+      "progress": 22,
+      "insightNote": "Software/Cloud budget line at 92%. At current burn, EAC exceeds line by ₹38k before SW QA. Suggest CR-011 cost capture.",
+      "risks": [
+        {
+          "probability": "High",
+          "impact": "Med",
+          "description": "SAP HANA scope creep via template CRs"
+        }
+      ]
+    },
+    {
+      "externalId": "PRJ-2605",
+      "code": "PRJ-2605",
+      "name": "JFCL Traceability Platform",
+      "customerName": "Jay Fe Cylinders Ltd.",
+      "workType": "SW",
+      "contractValue": 9800000,
+      "pmName": "Pankaj Shukla",
+      "startDate": "2026-06-22",
+      "endDate": "2027-02-28",
+      "stageIndex": 1,
+      "stageName": "Initiation & Planning",
+      "health": "On Track",
+      "spi": 1.0,
+      "cpi": 1.0,
+      "progress": 8,
+      "milestones": [
+        { "name": "SRS Sign-off", "date": "2026-07-25", "status": "in_progress" }
+      ]
+    },
+    {
+      "externalId": "PRJ-2606",
+      "code": "PRJ-2606",
+      "name": "Kontrolix S1 Batch-04",
+      "customerName": "ITSYBIZZ Internal (Kontrolix)",
+      "location": "ITSYBIZZ Works",
+      "workType": "HW",
+      "contractValue": 1500000,
+      "pmName": "Deepak Yadav",
+      "startDate": "2026-05-05",
+      "endDate": "2026-08-05",
+      "stageIndex": 4,
+      "stageName": "Hardware QA & FAT",
+      "health": "Critical",
+      "spi": 0.79,
+      "cpi": 0.9,
+      "progress": 38,
+      "insightNote": "74% probability of missing 18-Jul dispatch unless PSU re-burn-in starts by 10-Jul. Critical path: NCR-018 → HW QA & FAT → Handover.",
+      "openItems": { "ncrs": 1, "tasks": 0, "expenses": 0 },
+      "milestones": [
+        { "name": "HW QA & FAT", "date": "2026-07-02", "status": "planned" },
+        { "name": "Handover", "date": "2026-08-05", "status": "planned" }
+      ],
+      "quotations": [
+        {
+          "externalId": "OPP-3007",
+          "title": "Kontrolix OEM — White-label Batch",
+          "stage": "Lost",
+          "estValue": 1800000,
+          "probability": 0,
+          "closeDate": "2026-06-25",
+          "owner": "Rohit Malhotra"
+        }
+      ],
+      "risks": [
+        {
+          "probability": "High",
+          "impact": "Med",
+          "description": "SMPS vendor lot delay beyond 09-Jul slips batch dispatch"
+        }
+      ]
+    }
+  ]
+}

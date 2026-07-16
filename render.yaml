@@ -1,0 +1,37 @@
+# Render Blueprint — deploys frontend + backend as ONE web service.
+# The Express server serves the built React app in production.
+# Docs: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: itsybizz-command-center
+    runtime: node
+    plan: free # upgrade to starter for always-on (free instances sleep after idle)
+    buildCommand: npm run build
+    startCommand: npm start
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: API_PREFIX
+        value: /api/v1
+      # Fill these in the Render dashboard (sync: false = never stored in the repo):
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: CLIENT_URL
+        sync: false # set to this service's URL, e.g. https://itsybizz-command-center.onrender.com
+      - key: SEED_ADMIN_EMAIL
+        value: admin@itsybizzz.local
+      - key: SEED_ADMIN_PASSWORD
+        sync: false
+      - key: STORAGE_PROVIDER
+        value: local
+      - key: AI_PROVIDER
+        value: mock # switch to claude + set ANTHROPIC_API_KEY when credits are added
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-5

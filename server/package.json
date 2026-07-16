@@ -1,0 +1,54 @@
+{
+  "name": "@itsybizzz/server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ITSYBIZZ Command Center API server",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "nodemon src/index.js",
+    "start": "node src/index.js",
+    "seed": "node src/seed/seed.js",
+    "seed:pepsi": "node src/seed/seed.pepsi.js",
+    "seed:employees": "node src/seed/seed.employees.js",
+    "smoke": "node src/tests/smoke.js",
+    "smoke:tasks": "node src/tests/tasks.smoke.js",
+    "smoke:wave1": "node src/tests/wave1.smoke.js",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "lint": "eslint \"src/**/*.js\""
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "compression": "^1.7.4",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-mongo-sanitize": "^2.2.0",
+    "express-rate-limit": "^7.4.0",
+    "helmet": "^7.1.0",
+    "hpp": "^0.2.3",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.6.0",
+    "morgan": "^1.10.0",
+    "multer": "^2.0.0",
+    "nodemailer": "^6.9.14",
+    "socket.io": "^4.7.5",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
+    "uuid": "^10.0.0",
+    "winston": "^3.14.2",
+    "zod": "^3.23.8"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/sdk": "^0.27.0",
+    "bullmq": "^5.12.0",
+    "cloudinary": "^2.4.0",
+    "ioredis": "^5.4.1",
+    "openai": "^4.56.0"
+  },
+  "devDependencies": {
+    "mongodb-memory-server": "^10.0.0",
+    "nodemon": "^3.1.4"
+  }
+}
