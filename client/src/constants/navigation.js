@@ -10,6 +10,7 @@ import InsightsIcon from '@mui/icons-material/Insights';
 import NightsStayIcon from '@mui/icons-material/NightsStay';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import PeopleIcon from '@mui/icons-material/People';
+import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import TuneIcon from '@mui/icons-material/Tune';
 import HistoryIcon from '@mui/icons-material/History';
@@ -22,7 +23,10 @@ import HistoryIcon from '@mui/icons-material/History';
 export const NAV_SECTIONS = [
   {
     heading: 'Overview',
-    items: [{ label: 'Dashboard', to: '/', icon: DashboardIcon, module: 'dashboard', action: 'read', ready: true }],
+    items: [
+      { label: 'Dashboard', to: '/', icon: DashboardIcon, module: 'dashboard', action: 'read', ready: true },
+      { label: 'Org Chart', to: '/organization', icon: AccountTreeIcon, module: null, ready: true },
+    ],
   },
   {
     heading: 'Work',

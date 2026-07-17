@@ -10,10 +10,13 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import AddIcon from '@mui/icons-material/Add';
+import AssignmentIndIcon from '@mui/icons-material/AssignmentInd';
+import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import { tasksApi } from '../../api/tasks.api.js';
 import { STATUS_ACCENT, initials, formatDate, formatMinutes } from './taskMeta.js';
 import { TASK_STATUS_LABELS } from '../../api/tasks.api.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
+import DelegateDialog from './DelegateDialog.jsx';
 
 /** Soft chip palette — muted backgrounds, saturated text. */
 const PRIORITY_SOFT = {
@@ -40,6 +43,7 @@ export default function TaskDetailDrawer({ open, taskId, onClose, onEdit, onChan
   const [checklistText, setChecklistText] = useState('');
   const [minutes, setMinutes] = useState('');
   const [summary, setSummary] = useState(null);
+  const [delegateOpen, setDelegateOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['task', taskId],
@@ -54,14 +58,21 @@ export default function TaskDetailDrawer({ open, taskId, onClose, onEdit, onChan
   // (move, comment, checklist, log time) even without tasks:update. The
   // server enforces the same rule.
   const uid = user?._id;
+  const isAssignee = Boolean(
+    task && uid && (task.assignees || []).some((a) => (a._id || a) === uid)
+  );
   const isParticipant = Boolean(
     task &&
       uid &&
-      ((task.assignees || []).some((a) => (a._id || a) === uid) ||
+      (isAssignee ||
         (task.watchers || []).some((w) => (w._id || w) === uid) ||
         (task.createdBy?._id || task.createdBy) === uid)
   );
   const canEdit = canEditAll || isParticipant; // gates work actions in this drawer
+
+  // Delegate down the org chart: privileged users always; otherwise the
+  // current assignee (a manager hands off to their reports — server-enforced).
+  const canDelegate = Boolean(task && task.status !== 'done' && (canEditAll || isAssignee));
 
   const refetch = () => {
     qc.invalidateQueries({ queryKey: ['task', taskId] });
@@ -163,7 +174,25 @@ export default function TaskDetailDrawer({ open, taskId, onClose, onEdit, onChan
                 </AvatarGroup>
               ) : '—'}
             </Meta>
+            {task.assignedBy && (
+              <Meta label="Assigned by">
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>{task.assignedBy.name}</Typography>
+              </Meta>
+            )}
           </Stack>
+
+          {/* Delegate action */}
+          {canDelegate && (
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={<AssignmentIndIcon />}
+              onClick={() => setDelegateOpen(true)}
+              sx={{ mt: 2.5 }}
+            >
+              Delegate to team
+            </Button>
+          )}
 
           {/* AI summary */}
           <Box sx={{ mt: 3 }}>
@@ -212,6 +241,29 @@ export default function TaskDetailDrawer({ open, taskId, onClose, onEdit, onChan
             </Section>
           )}
 
+          {/* Assignment history — every hop of the delegation chain. */}
+          {task.delegationChain?.length > 0 && (
+            <Section title="Assignment history">
+              {task.delegationChain.map((hop, i) => (
+                <Box key={hop._id || i} sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 1.25 }}>
+                  <Avatar sx={{ width: 26, height: 26, fontSize: 10.5, bgcolor: '#EEF2FF', color: '#4338CA', mt: 0.25 }}>
+                    {initials(hop.from?.name)}
+                  </Avatar>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
+                      <b>{hop.from?.name || 'Someone'}</b>
+                      <ArrowForwardIcon sx={{ fontSize: 13, color: 'text.disabled' }} />
+                      <b>{(hop.to || []).map((t) => t?.name || '').filter(Boolean).join(', ') || '—'}</b>
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {formatDate(hop.at)}{hop.note ? ` · “${hop.note}”` : ''}
+                    </Typography>
+                  </Box>
+                </Box>
+              ))}
+            </Section>
+          )}
+
           {/* Subtasks */}
           {subtasks.length > 0 && (
             <Section title={`Subtasks (${subtasks.length})`}>
@@ -245,6 +297,14 @@ export default function TaskDetailDrawer({ open, taskId, onClose, onEdit, onChan
             )}
           </Section>
         </Box>
+      )}
+      {task && (
+        <DelegateDialog
+          task={task}
+          open={delegateOpen}
+          onClose={() => setDelegateOpen(false)}
+          onDelegated={() => { refetch(); }}
+        />
       )}
     </Drawer>
   );

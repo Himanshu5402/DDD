@@ -6,6 +6,7 @@ import { getRedis, closeRedis } from './config/redis.js';
 import { createApp } from './app.js';
 import { initSocket } from './socket/index.js';
 import { seedAll } from './seed/seed.core.js';
+import { startPepsiScheduler, stopPepsiScheduler } from './services/integrations/pepsi.scheduler.js';
 
 let server;
 
@@ -28,12 +29,14 @@ async function bootstrap() {
   server.listen(env.PORT, () => {
     logger.info(`🚀 ITSYBIZZ API listening on http://localhost:${env.PORT}${env.API_PREFIX}`);
     logger.info(`📚 API docs at http://localhost:${env.PORT}/api/docs`);
+    startPepsiScheduler(); // PEPSI project sync (no-op unless PEPSI_SYNC_ENABLED)
   });
 }
 
 async function shutdown(signal) {
   logger.info(`${signal} received — shutting down gracefully...`);
   try {
+    stopPepsiScheduler();
     if (server) await new Promise((resolve) => server.close(resolve));
     await closeRedis();
     await disconnectDatabase();

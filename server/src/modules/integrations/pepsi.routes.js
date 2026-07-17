@@ -9,6 +9,7 @@ import ApiResponse from '../../utils/ApiResponse.js';
 import { broadcast } from '../../socket/index.js';
 import { MODULES, ACTIONS } from '../../config/constants.js';
 import { upsertPepsiProjects, getPepsiStatus } from './pepsi.service.js';
+import { runPepsiSync } from './pepsi.sync.js';
 
 const router = Router();
 const M = MODULES.RRRMAS; // synced projects live in the RRRMAS module
@@ -57,6 +58,32 @@ router.post(
     const result = await upsertPepsiProjects(req.body.projects, req.user._id);
     broadcast('rrrmas:changed', { type: 'pepsi:sync', at: Date.now() });
     return ApiResponse.ok(res, result, 'PEPSI sync complete');
+  })
+);
+
+/**
+ * @swagger
+ * /integrations/pepsi/pull:
+ *   post:
+ *     tags: [Integrations]
+ *     summary: Server-initiated PEPSI sync — pulls from the live API, falls back to the bundled snapshot
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Sync result with source (api|snapshot) }
+ */
+router.post(
+  '/pull',
+  authorize(M, ACTIONS.UPDATE),
+  auditAction({
+    action: ACTIONS.UPDATE,
+    module: M,
+    entityType: 'Project',
+    describe: () => 'PEPSI pull (API → snapshot fallback)',
+  }),
+  asyncHandler(async (req, res) => {
+    const result = await runPepsiSync(req.user._id);
+    broadcast('rrrmas:changed', { type: 'pepsi:pull', at: Date.now() });
+    return ApiResponse.ok(res, result, `PEPSI pull complete (source: ${result.source})`);
   })
 );
 

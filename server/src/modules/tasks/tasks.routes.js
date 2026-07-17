@@ -15,6 +15,7 @@ import {
   createTaskSchema,
   updateTaskSchema,
   moveSchema,
+  delegateSchema,
   commentSchema,
   checklistItemSchema,
   logTimeSchema,
@@ -91,6 +92,23 @@ router.patch(
   participantGuard,
   validate({ params: idParamSchema, body: moveSchema }),
   c.move
+);
+
+// Delegate down the org chart. participantGuard admits privileged users and
+// task participants; the service then enforces that non-privileged actors are
+// current assignees delegating only to their own direct reports.
+router.post(
+  '/:id/delegate',
+  participantGuard,
+  validate({ params: idParamSchema, body: delegateSchema }),
+  auditAction({
+    action: ACTIONS.UPDATE,
+    module: M,
+    entityType: 'Task',
+    entityId: (req) => req.params.id,
+    describe: (req) => `Delegated task to ${req.body.assignees.length} user(s)`,
+  }),
+  c.delegate
 );
 
 router.delete(

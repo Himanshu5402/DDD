@@ -21,6 +21,7 @@ import maintenanceRoutes from '../modules/maintenance/maintenance.routes.js';
 import employeeAnalyticsRoutes from '../modules/employeeAnalytics/employeeAnalytics.routes.js';
 import reportingRoutes from '../modules/reporting/reporting.routes.js';
 import dashboardRoutes from '../modules/dashboard/dashboard.routes.js';
+import notificationsRoutes from '../modules/notifications/notifications.routes.js';
 import pepsiRoutes from '../modules/integrations/pepsi.routes.js';
 
 const router = Router();
@@ -69,6 +70,7 @@ router.use('/maintenance', maintenanceRoutes);
 router.use('/employee-analytics', employeeAnalyticsRoutes);
 router.use('/reports', reportingRoutes);
 router.use('/dashboard', dashboardRoutes);
+router.use('/notifications', notificationsRoutes);
 router.use('/integrations/pepsi', pepsiRoutes);
 
 export default router;

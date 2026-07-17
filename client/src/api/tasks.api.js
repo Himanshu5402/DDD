@@ -31,6 +31,10 @@ export const tasksApi = {
     const { data } = await api.patch(`/tasks/${id}/move`, body);
     return data.data;
   },
+  async delegate(id, { assignees, note }) {
+    const { data } = await api.post(`/tasks/${id}/delegate`, { assignees, note });
+    return data.data.task;
+  },
   async remove(id) {
     await api.delete(`/tasks/${id}`);
   },

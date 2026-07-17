@@ -14,8 +14,8 @@ import {
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import LogoutIcon from '@mui/icons-material/Logout';
-import NotificationsNoneIcon from '@mui/icons-material/NotificationsNone';
 import { useAuth } from '../../auth/AuthContext.jsx';
+import NotificationsBell from '../notifications/NotificationsBell.jsx';
 
 function initials(name = '') {
   return name
@@ -49,11 +49,7 @@ export default function Topbar({ onMenuClick }) {
 
         <Box sx={{ flex: 1 }} />
 
-        <Tooltip title="Notifications">
-          <IconButton>
-            <NotificationsNoneIcon />
-          </IconButton>
-        </Tooltip>
+        <NotificationsBell />
 
         <Box
           onClick={(e) => setAnchor(e.currentTarget)}

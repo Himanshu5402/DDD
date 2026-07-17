@@ -8,6 +8,7 @@ import LoginPage from './pages/LoginPage.jsx';
 
 // Route-level code-splitting: each module page loads on demand.
 const DashboardOverviewPage = lazy(() => import('./pages/dashboard/DashboardOverviewPage.jsx'));
+const OrgChartPage = lazy(() => import('./pages/org/OrgChartPage.jsx'));
 const TasksBoardPage = lazy(() => import('./pages/tasks/TasksBoardPage.jsx'));
 const GoalsPage = lazy(() => import('./pages/goals/GoalsPage.jsx'));
 const RrrmasPage = lazy(() => import('./pages/rrrmas/RrrmasPage.jsx'));
@@ -51,6 +52,8 @@ export default function App() {
         <Route element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>
             <Route index element={<DashboardOverviewPage />} />
+            {/* Org directory — visible to every signed-in employee. */}
+            <Route path="organization" element={<OrgChartPage />} />
             <Route path="tasks" element={guarded('tasks', TasksBoardPage)} />
             <Route path="goals" element={guarded('goals', GoalsPage)} />
             <Route path="rrrmas" element={guarded('rrrmas', RrrmasPage)} />

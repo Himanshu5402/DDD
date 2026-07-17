@@ -84,6 +84,11 @@ export const moveSchema = z.object({
   order: z.number().int().min(0).optional(),
 });
 
+export const delegateSchema = z.object({
+  assignees: z.array(objectId).min(1, 'Pick at least one person'),
+  note: z.string().trim().max(1000).optional(),
+});
+
 export const commentSchema = z.object({ body: z.string().trim().min(1).max(5000) });
 export const checklistItemSchema = z.object({ text: z.string().trim().min(1).max(500) });
 export const itemParamSchema = z.object({ id: objectId, itemId: objectId });

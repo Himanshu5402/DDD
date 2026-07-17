@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Box, Typography, Button, CircularProgress, Alert, Chip, TextField, InputAdornment, Stack } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -40,6 +41,16 @@ export default function TasksBoardPage() {
   const [saveError, setSaveError] = useState('');
   const [detailId, setDetailId] = useState(null);
   const [dragOverCol, setDragOverCol] = useState(null);
+
+  // Deep link: /tasks?task=<id> (notification clicks) opens the detail drawer.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const linked = searchParams.get('task');
+    if (linked) {
+      setDetailId(linked);
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   const { data: companies = [] } = useQuery({
     queryKey: ['companies'],

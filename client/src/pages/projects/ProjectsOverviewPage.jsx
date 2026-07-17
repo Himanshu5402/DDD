@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Box, Paper, Typography, Grid, Chip, LinearProgress, CircularProgress, Alert,
-  Drawer, IconButton, Divider, Stack, Tooltip,
+  Drawer, IconButton, Divider, Stack, Tooltip, Avatar,
 } from '@mui/material';
 import Masonry from '@mui/lab/Masonry';
 import CloseIcon from '@mui/icons-material/Close';
@@ -51,10 +51,53 @@ const SOFT = {
 };
 
 const HEALTH_META = {
-  on_track: { label: 'On Track', color: 'success', soft: SOFT.success },
-  at_risk: { label: 'At Risk', color: 'warning', soft: SOFT.warning },
-  critical: { label: 'Critical', color: 'error', soft: SOFT.error },
+  on_track: { label: 'On Track', color: 'success', soft: SOFT.success, accent: '#059669' },
+  at_risk: { label: 'At Risk', color: 'warning', soft: SOFT.warning, accent: '#D97706' },
+  critical: { label: 'Critical', color: 'error', soft: SOFT.error, accent: '#DC2626' },
 };
+
+const NEUTRAL_ACCENT = '#CBD5E1';
+
+/** SPI/CPI colour band: healthy (>=1) → amber (>=0.9) → red. */
+function perfColor(v) {
+  if (v == null) return 'text.secondary';
+  if (v >= 1) return 'success.main';
+  if (v >= 0.9) return 'warning.main';
+  return 'error.main';
+}
+
+/** Roll budget lines into one { budget, actual, pct } total for the card bar. */
+function budgetTotals(lines = []) {
+  if (!lines.length) return null;
+  const budget = lines.reduce((s, b) => s + (b.budget || 0), 0);
+  const actual = lines.reduce((s, b) => s + (b.actual || 0), 0);
+  return { budget, actual, pct: budget > 0 ? Math.round((actual / budget) * 100) : 0 };
+}
+
+function initialsOf(name = '') {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '—';
+  return (parts[0][0] + (parts[1]?.[0] || '')).toUpperCase();
+}
+
+/** Compact SPI / CPI pill with a colour band. */
+function PerfPill({ label, value }) {
+  return (
+    <Box
+      sx={{
+        textAlign: 'center', px: 1, py: 0.4, borderRadius: 2,
+        border: '1px solid', borderColor: 'divider', minWidth: 50,
+      }}
+    >
+      <Typography sx={{ display: 'block', fontSize: 9, lineHeight: 1, color: 'text.disabled', fontWeight: 700, letterSpacing: '0.04em' }}>
+        {label}
+      </Typography>
+      <Typography sx={{ fontWeight: 800, fontSize: 13, lineHeight: 1.35, color: perfColor(value) }}>
+        {value ?? '—'}
+      </Typography>
+    </Box>
+  );
+}
 
 const QUOTE_STAGE_COLOR = {
   Lead: 'default', Qualified: 'info', Proposal: 'secondary',
@@ -62,8 +105,14 @@ const QUOTE_STAGE_COLOR = {
 };
 
 const MILESTONE_COLOR = {
-  done: 'success', active: 'info', in_progress: 'info', planned: 'default', pending: 'default',
+  done: 'success', active: 'info', in_progress: 'info', planned: 'default', pending: 'default', blocked: 'error',
 };
+
+// Portal execution-data status colours (drawer sections).
+const NCR_STATUS_COLOR = { Open: 'error', CAPA: 'warning', Closed: 'success' };
+const TEST_STATUS_COLOR = { PASS: 'success', RUNNING: 'info', PLANNED: 'default', BLOCKED: 'error', FAIL: 'error' };
+const CR_STATUS_COLOR = { Approved: 'success', 'Client Review': 'warning', Rejected: 'error', Draft: 'default' };
+const STAGE_DOT = { Completed: '#059669', 'In Progress': '#0284C7', Blocked: '#DC2626', Pending: '#CBD5E1' };
 
 function nextMilestone(milestones = []) {
   return milestones
@@ -219,10 +268,13 @@ function StatCard({ label, value, hint, color = 'text.primary' }) {
 
 function ProjectCard({ project: p, onClick, ...props }) {
   const health = HEALTH_META[p.health];
+  const accent = health?.accent || NEUTRAL_ACCENT;
   const dl = daysLeft(p.endDate);
   const overdue = dl != null && dl < 0 && p.progress < 100;
+  const dueSoon = dl != null && dl >= 0 && dl <= 14;
   const nm = nextMilestone(p.milestones);
   const quote = (p.quotations || [])[0];
+  const bt = budgetTotals(p.budgetLines);
   const hasFooter = nm || quote || p.openItems?.ncrs > 0 || p.openItems?.tasks > 0;
 
   return (
@@ -231,130 +283,184 @@ function ProjectCard({ project: p, onClick, ...props }) {
       elevation={0}
       onClick={onClick}
       sx={{
-        p: 2.5, cursor: 'pointer',
+        cursor: 'pointer', overflow: 'hidden',
         border: '1px solid', borderColor: 'divider', borderRadius: 3,
-        transition: 'box-shadow .15s ease, transform .15s ease',
-        '&:hover': { boxShadow: '0 10px 30px rgba(15,23,42,0.08)', transform: 'translateY(-2px)' },
+        transition: 'box-shadow .18s ease, transform .18s ease, border-color .18s ease',
+        '&:hover': {
+          boxShadow: '0 14px 34px rgba(15,23,42,0.10)',
+          transform: 'translateY(-3px)',
+          borderColor: 'transparent',
+        },
       }}
     >
-      {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1 }}>
-        <Box sx={{ minWidth: 0 }}>
-          <Typography sx={{ fontWeight: 700, fontSize: 15, lineHeight: 1.3 }} noWrap title={p.name}>
-            {p.name}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            {p.code || p.externalId} {p.customerName ? `· ${p.customerName}` : ''}
-          </Typography>
-        </Box>
-        <Stack direction="row" spacing={0.75} sx={{ flexShrink: 0 }}>
-          {p.workType && (
-            <Chip
-              label={p.workType}
-              size="small"
-              variant="outlined"
-              sx={{ height: 22, fontSize: 10.5, color: 'text.secondary' }}
-            />
-          )}
-          <HealthChip health={health} sx={{ height: 22, fontSize: 10.5 }} />
-        </Stack>
-      </Box>
+      {/* Health accent bar */}
+      <Box sx={{ height: 4, bgcolor: accent }} />
 
-      {/* Progress */}
-      <Box sx={{ mt: 2 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.75 }}>
-          <Typography variant="caption" color="text.secondary">
-            {p.currentStage?.index
-              ? `Stage ${p.currentStage.index}/${p.currentStage.total || 8} · ${p.currentStage.name}`
-              : 'Progress'}
-          </Typography>
-          <Typography variant="caption" sx={{ fontWeight: 700 }}>{p.progress ?? 0}%</Typography>
-        </Box>
-        <LinearProgress
-          variant="determinate"
-          value={p.progress ?? 0}
-          color={health?.color || 'primary'}
-          sx={{ height: 6 }}
-        />
-      </Box>
-
-      {/* Facts */}
-      <Grid container spacing={1.5} sx={{ mt: 0.5 }}>
-        <Fact label="Contract" value={formatINR(p.contractValue)} strong />
-        <Fact
-          label="Deadline"
-          value={
-            p.endDate
-              ? `${formatDate(p.endDate)}${dl != null ? ` · ${overdue ? `${Math.abs(dl)}d overdue` : `${dl}d left`}` : ''}`
-              : '—'
-          }
-          color={overdue ? 'error.main' : dl != null && dl <= 14 ? 'warning.main' : undefined}
-        />
-        <Fact label="PM" value={p.pmName || '—'} />
-        <Fact label="SPI / CPI" value={p.spi != null ? `${p.spi} / ${p.cpi}` : '—'} />
-      </Grid>
-
-      {/* Next milestone + quotation + open items */}
-      {hasFooter && (
-        <Box sx={{ mt: 2, pt: 1.75, borderTop: '1px solid', borderColor: 'divider' }}>
-          {nm && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, color: 'text.secondary' }}>
-              <FlagIcon sx={{ fontSize: 15 }} />
-              <Typography variant="caption" noWrap>
-                Next: <b>{nm.name}</b> · {formatDate(nm.date)}
-              </Typography>
-            </Box>
-          )}
-          {quote && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, color: 'text.secondary', mt: nm ? 0.75 : 0 }}>
-              <RequestQuoteIcon sx={{ fontSize: 15 }} />
-              <Typography variant="caption" noWrap>
-                {quote.externalId} · {formatINR(quote.estValue)}
-              </Typography>
+      <Box sx={{ p: 2.5 }}>
+        {/* Header */}
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1 }}>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography sx={{ fontWeight: 700, fontSize: 15.5, lineHeight: 1.3 }} noWrap title={p.name}>
+              {p.name}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
+              {p.code || p.externalId} {p.customerName ? `· ${p.customerName}` : ''}
+            </Typography>
+          </Box>
+          <Stack direction="row" spacing={0.75} sx={{ flexShrink: 0 }}>
+            {p.workType && (
               <Chip
-                label={quote.stage}
+                label={p.workType}
                 size="small"
-                color={QUOTE_STAGE_COLOR[quote.stage] || 'default'}
-                sx={{ height: 18, fontSize: 9.5 }}
+                variant="outlined"
+                sx={{ height: 22, fontSize: 10.5, color: 'text.secondary' }}
               />
-            </Box>
-          )}
-          {(p.openItems?.ncrs > 0 || p.openItems?.tasks > 0) && (
-            <Stack direction="row" spacing={0.75} sx={{ mt: nm || quote ? 1.25 : 0 }}>
-              {p.openItems.ncrs > 0 && (
-                <Chip
-                  icon={<WarningAmberIcon sx={{ fontSize: 13, color: '#B91C1C !important' }} />}
-                  label={`${p.openItems.ncrs} NCR`}
-                  size="small"
-                  sx={{ height: 22, fontSize: 10.5, ...SOFT.error }}
-                />
-              )}
-              {p.openItems.tasks > 0 && (
-                <Chip
-                  label={`${p.openItems.tasks} open tasks`}
-                  size="small"
-                  variant="outlined"
-                  sx={{ height: 22, fontSize: 10.5, color: 'text.secondary' }}
-                />
-              )}
+            )}
+            <HealthChip health={health} sx={{ height: 22, fontSize: 10.5 }} />
+          </Stack>
+        </Box>
+
+        {/* Stage + progress */}
+        <Box sx={{ mt: 2 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.75, gap: 1 }}>
+            <Typography variant="caption" color="text.secondary" noWrap>
+              {p.currentStage?.index
+                ? `Stage ${p.currentStage.index}/${p.currentStage.total || 8} · ${p.currentStage.name}`
+                : 'Progress'}
+            </Typography>
+            <Typography variant="caption" sx={{ fontWeight: 800, flexShrink: 0 }}>{p.progress ?? 0}%</Typography>
+          </Box>
+          <LinearProgress
+            variant="determinate"
+            value={p.progress ?? 0}
+            color={health?.color || 'primary'}
+            sx={{ height: 7 }}
+          />
+        </Box>
+
+        {/* Contract value + SPI/CPI pills */}
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 1, mt: 2.25 }}>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.2 }}>
+              Contract value
+            </Typography>
+            <Typography sx={{ fontWeight: 800, fontSize: 21, lineHeight: 1.2 }} noWrap>
+              {formatINR(p.contractValue)}
+            </Typography>
+          </Box>
+          {p.spi != null && (
+            <Stack direction="row" spacing={0.75} sx={{ flexShrink: 0 }}>
+              <PerfPill label="SPI" value={p.spi} />
+              <PerfPill label="CPI" value={p.cpi} />
             </Stack>
           )}
         </Box>
-      )}
-    </Paper>
-  );
-}
 
-function Fact({ label, value, color, strong }) {
-  return (
-    <Grid item xs={6}>
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.3 }}>
-        {label}
-      </Typography>
-      <Typography variant="body2" sx={{ fontWeight: strong ? 800 : 600, color }} noWrap title={String(value)}>
-        {value}
-      </Typography>
-    </Grid>
+        {/* PM + deadline */}
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, mt: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+            <Avatar sx={{ width: 28, height: 28, fontSize: 11, fontWeight: 700, bgcolor: '#EEF2FF', color: '#4338CA' }}>
+              {initialsOf(p.pmName)}
+            </Avatar>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography sx={{ display: 'block', fontSize: 9.5, lineHeight: 1.1, color: 'text.disabled', fontWeight: 700, letterSpacing: '0.04em' }}>
+                PROJECT MANAGER
+              </Typography>
+              <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap title={p.pmName || '—'}>
+                {p.pmName || '—'}
+              </Typography>
+            </Box>
+          </Box>
+          <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
+            <Typography sx={{ display: 'block', fontSize: 9.5, lineHeight: 1.1, color: 'text.disabled', fontWeight: 700, letterSpacing: '0.04em' }}>
+              DEADLINE
+            </Typography>
+            <Typography
+              variant="body2"
+              sx={{ fontWeight: 700, color: overdue ? 'error.main' : dueSoon ? 'warning.main' : 'text.primary' }}
+              noWrap
+            >
+              {p.endDate ? formatDate(p.endDate) : '—'}
+            </Typography>
+            {dl != null && (
+              <Typography sx={{ fontSize: 10.5, fontWeight: 700, color: overdue ? 'error.main' : dueSoon ? 'warning.main' : 'text.disabled' }}>
+                {overdue ? `${Math.abs(dl)}d overdue` : `${dl}d left`}
+              </Typography>
+            )}
+          </Box>
+        </Box>
+
+        {/* Budget burn */}
+        {bt && (
+          <Box sx={{ mt: 2 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5, gap: 1 }}>
+              <Typography variant="caption" color="text.secondary">Budget burn</Typography>
+              <Typography
+                variant="caption"
+                sx={{ fontWeight: 700, color: bt.pct >= 100 ? 'error.main' : bt.pct >= 85 ? 'warning.main' : 'text.secondary' }}
+                noWrap
+              >
+                {formatINR(bt.actual)} / {formatINR(bt.budget)} · {bt.pct}%
+              </Typography>
+            </Box>
+            <LinearProgress
+              variant="determinate"
+              value={Math.min(100, bt.pct)}
+              color={bt.pct >= 100 ? 'error' : bt.pct >= 85 ? 'warning' : 'primary'}
+              sx={{ height: 5 }}
+            />
+          </Box>
+        )}
+
+        {/* Next milestone + quotation + open items */}
+        {hasFooter && (
+          <Box sx={{ mt: 2, pt: 1.75, borderTop: '1px solid', borderColor: 'divider' }}>
+            {nm && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, color: 'text.secondary' }}>
+                <FlagIcon sx={{ fontSize: 15 }} />
+                <Typography variant="caption" noWrap>
+                  Next: <b>{nm.name}</b> · {formatDate(nm.date)}
+                </Typography>
+              </Box>
+            )}
+            {quote && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, color: 'text.secondary', mt: nm ? 0.75 : 0 }}>
+                <RequestQuoteIcon sx={{ fontSize: 15 }} />
+                <Typography variant="caption" noWrap>
+                  {quote.externalId} · {formatINR(quote.estValue)}
+                </Typography>
+                <Chip
+                  label={quote.stage}
+                  size="small"
+                  color={QUOTE_STAGE_COLOR[quote.stage] || 'default'}
+                  sx={{ height: 18, fontSize: 9.5 }}
+                />
+              </Box>
+            )}
+            {(p.openItems?.ncrs > 0 || p.openItems?.tasks > 0) && (
+              <Stack direction="row" spacing={0.75} sx={{ mt: nm || quote ? 1.25 : 0 }}>
+                {p.openItems.ncrs > 0 && (
+                  <Chip
+                    icon={<WarningAmberIcon sx={{ fontSize: 13, color: '#B91C1C !important' }} />}
+                    label={`${p.openItems.ncrs} NCR`}
+                    size="small"
+                    sx={{ height: 22, fontSize: 10.5, ...SOFT.error }}
+                  />
+                )}
+                {p.openItems.tasks > 0 && (
+                  <Chip
+                    label={`${p.openItems.tasks} open tasks`}
+                    size="small"
+                    variant="outlined"
+                    sx={{ height: 22, fontSize: 10.5, color: 'text.secondary' }}
+                  />
+                )}
+              </Stack>
+            )}
+          </Box>
+        )}
+      </Box>
+    </Paper>
   );
 }
 
@@ -362,9 +468,11 @@ function ProjectDrawer({ project: p, onClose }) {
   if (!p) return null;
   const health = HEALTH_META[p.health];
   const dl = daysLeft(p.endDate);
+  const accent = health?.accent || NEUTRAL_ACCENT;
 
   return (
-    <Drawer anchor="right" open onClose={onClose} PaperProps={{ sx: { width: { xs: '100%', sm: 480 } } }}>
+    <Drawer anchor="right" open onClose={onClose} PaperProps={{ sx: { width: { xs: '100%', sm: 500 } } }}>
+      <Box sx={{ height: 4, bgcolor: accent }} />
       <Box sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <Box>
@@ -420,6 +528,36 @@ function ProjectDrawer({ project: p, onClose }) {
           </Alert>
         )}
 
+        {/* Execution stages (8-stage PEPSI cycle) */}
+        {p.stages?.length > 0 && (
+          <Section title="Execution stages">
+            {p.stages.map((s, i) => {
+              const active = s.status === 'In Progress' || s.status === 'Blocked';
+              return (
+                <Box key={s._id || i} sx={{ mb: 1.25 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                    <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: STAGE_DOT[s.status] || '#CBD5E1', flexShrink: 0 }} />
+                    <Typography
+                      variant="caption"
+                      sx={{ fontWeight: active ? 700 : 500, color: s.status === 'Pending' ? 'text.disabled' : 'text.primary', flex: 1 }}
+                      noWrap
+                    >
+                      {i + 1}. {s.name}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>{s.progress}%</Typography>
+                  </Box>
+                  <LinearProgress
+                    variant="determinate"
+                    value={s.progress}
+                    color={s.status === 'Blocked' ? 'error' : s.status === 'Completed' ? 'success' : 'primary'}
+                    sx={{ height: 4, ml: 2 }}
+                  />
+                </Box>
+              );
+            })}
+          </Section>
+        )}
+
         {/* Milestones */}
         {p.milestones?.length > 0 && (
           <Section title="Milestones">
@@ -433,6 +571,58 @@ function ProjectDrawer({ project: p, onClose }) {
                   <Chip label={m.status} size="small" color={MILESTONE_COLOR[m.status] || 'default'} sx={{ height: 18, fontSize: 10, textTransform: 'capitalize' }} />
                 </Stack>
               </Box>
+            ))}
+          </Section>
+        )}
+
+        {/* QC & production tests */}
+        {p.tests?.length > 0 && (
+          <Section title="QC & production tests">
+            {p.tests.map((t, i) => (
+              <Paper key={t._id || i} elevation={0} sx={{ p: 1.75, mb: 1.25, border: '1px solid', borderColor: 'divider', borderRadius: 2.5 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1, mb: 1 }}>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>{t.name}</Typography>
+                    <Typography variant="caption" color="text.secondary">{t.type}{t.window ? ` · ${t.window}` : ''}</Typography>
+                  </Box>
+                  <Chip label={t.status} size="small" color={TEST_STATUS_COLOR[t.status] || 'default'} sx={{ height: 20, flexShrink: 0 }} />
+                </Box>
+                {t.metrics?.map((m, j) => (
+                  <Box key={j} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', py: 0.3 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ flex: 1, minWidth: 0 }} noWrap>{m.name}</Typography>
+                    <Typography variant="caption" sx={{ mx: 1, color: 'text.disabled', flexShrink: 0 }}>{m.target}</Typography>
+                    <Typography variant="caption" sx={{ fontWeight: 700, color: m.pass ? 'success.main' : 'error.main', minWidth: 62, textAlign: 'right', flexShrink: 0 }}>
+                      {m.actual} {m.pass ? '✓' : '✗'}
+                    </Typography>
+                  </Box>
+                ))}
+              </Paper>
+            ))}
+          </Section>
+        )}
+
+        {/* Non-conformance reports */}
+        {p.ncrs?.length > 0 && (
+          <Section title="Non-conformance (NCRs)">
+            {p.ncrs.map((n, i) => (
+              <Paper key={n._id || i} elevation={0} sx={{ p: 1.75, mb: 1.25, border: '1px solid', borderColor: 'divider', borderRadius: 2.5 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 700 }}>{n.externalId}</Typography>
+                  <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
+                    <Chip label={n.severity} size="small" sx={{ height: 18, fontSize: 9.5, ...(n.severity === 'Major' ? SOFT.error : SOFT.warning) }} />
+                    <Chip label={n.status} size="small" color={NCR_STATUS_COLOR[n.status] || 'default'} sx={{ height: 18, fontSize: 9.5 }} />
+                  </Stack>
+                </Box>
+                <Typography variant="body2" sx={{ mb: 0.5 }}>{n.title}</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Owner: {n.owner || '—'}{n.ageDays ? ` · ${n.ageDays}d open` : ''}
+                </Typography>
+                {n.correctiveAction && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                    <b>CA:</b> {n.correctiveAction}
+                  </Typography>
+                )}
+              </Paper>
             ))}
           </Section>
         )}
@@ -459,6 +649,24 @@ function ProjectDrawer({ project: p, onClose }) {
                 </Box>
               );
             })}
+          </Section>
+        )}
+
+        {/* Change requests */}
+        {p.changeRequests?.length > 0 && (
+          <Section title="Change requests">
+            {p.changeRequests.map((c, i) => (
+              <Paper key={c._id || i} elevation={0} sx={{ p: 1.75, mb: 1.25, border: '1px solid', borderColor: 'divider', borderRadius: 2.5 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 700 }}>{c.externalId}</Typography>
+                  <Chip label={c.status} size="small" color={CR_STATUS_COLOR[c.status] || 'default'} sx={{ height: 20, flexShrink: 0 }} />
+                </Box>
+                <Typography variant="body2" sx={{ mb: 0.5 }}>{c.scope}</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Cost {c.cost || '—'} · Schedule {c.schedule || '—'}
+                </Typography>
+              </Paper>
+            ))}
           </Section>
         )}
 

@@ -28,6 +28,10 @@ const userSchema = new mongoose.Schema(
     // Which of the owner's companies this person works for.
     company: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', default: null, index: true },
 
+    // Org chart: this person's direct manager (null = top level).
+    // A manager's team = User.find({ reportsTo: managerId }).
+    reportsTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
+
     // HRMS integration (future): employees sync from the company HRMS by
     // hrmsId (idempotent upserts), same pattern as the PEPSI project sync.
     source: { type: String, enum: ['manual', 'hrms'], default: 'manual' },

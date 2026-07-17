@@ -19,6 +19,7 @@ import Asset from '../../models/asset.model.js';
 import MaintenanceRecord from '../../models/maintenanceRecord.model.js';
 import DailyReport from '../../models/dailyReport.model.js';
 import EmployeeRecord from '../../models/employeeRecord.model.js';
+import User from '../../models/user.model.js';
 import { MODULES } from '../../config/constants.js';
 
 // Status sets mirrored from the owning models' enums.
@@ -58,17 +59,60 @@ export async function getOverview(user, permissions, isSuperAdmin) {
 
   if (can(MODULES.TASKS)) {
     add('tasks', async () => {
-      const [statusRows, overdue, dueToday, myOpen] = await Promise.all([
+      const TASK_CARD = 'title status priority dueDate assignees assignedBy createdBy company delegationChain';
+      const CARD_POPULATE = [
+        { path: 'assignees', select: 'name avatar designation' },
+        { path: 'assignedBy', select: 'name avatar' },
+        { path: 'createdBy', select: 'name avatar' },
+        { path: 'company', select: 'name code color' },
+      ];
+
+      const [statusRows, overdue, dueToday, myOpen, assignedToMe] = await Promise.all([
         Task.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]),
         Task.countDocuments({ dueDate: { $lt: now }, status: { $ne: 'done' } }),
         Task.countDocuments({ dueDate: { $gte: todayStart, $lt: todayEnd } }),
         Task.countDocuments({ assignees: user._id, status: { $ne: 'done' } }),
+        // Full-detail list of my open tasks (who assigned them, priority, due).
+        Task.find({ assignees: user._id, status: { $ne: 'done' } })
+          .select(TASK_CARD)
+          .populate(CARD_POPULATE)
+          .sort({ priority: -1, dueDate: 1 })
+          .limit(8),
       ]);
       const byStatus = Object.fromEntries(TASK_STATUSES.map((s) => [s, 0]));
       for (const row of statusRows) {
         if (byStatus[row._id] !== undefined) byStatus[row._id] = row.count;
       }
-      return { byStatus, overdue, dueToday, myOpen };
+
+      const section = { byStatus, overdue, dueToday, myOpen, assignedToMe };
+
+      // Manager view: my direct reports' open tasks + tasks I delegated onward.
+      const reports = await User.find({ reportsTo: user._id, isActive: true }).select('_id name');
+      if (reports.length) {
+        const reportIds = reports.map((r) => r._id);
+        const [teamOpen, teamTasks, delegatedByMe] = await Promise.all([
+          Task.countDocuments({ assignees: { $in: reportIds }, status: { $ne: 'done' } }),
+          Task.find({ assignees: { $in: reportIds }, status: { $ne: 'done' } })
+            .select(TASK_CARD)
+            .populate(CARD_POPULATE)
+            .sort({ priority: -1, dueDate: 1 })
+            .limit(8),
+          Task.find({ 'delegationChain.from': user._id, assignees: { $ne: user._id }, status: { $ne: 'done' } })
+            .select(TASK_CARD)
+            .populate(CARD_POPULATE)
+            .sort({ updatedAt: -1 })
+            .limit(8),
+        ]);
+        section.team = {
+          size: reports.length,
+          members: reports.map((r) => ({ _id: r._id, name: r.name })),
+          open: teamOpen,
+          tasks: teamTasks,
+          delegatedByMe,
+        };
+      }
+
+      return section;
     });
   }
 

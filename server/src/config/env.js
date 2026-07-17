@@ -56,6 +56,17 @@ const schema = z.object({
 
   RATE_LIMIT_WINDOW_MS: z.coerce.number().default(15 * 60 * 1000),
   RATE_LIMIT_MAX: z.coerce.number().default(300),
+
+  // ----- PEPSI portal integration (project sync) -----
+  // The portal API is auth-only today; the fetcher falls back to the bundled
+  // snapshot until PEPSI exposes project endpoints. Fill these in to go live.
+  PEPSI_API_BASE: z.string().default('https://pepsiapi.itsybizz.com/api'),
+  PEPSI_API_EMAIL: z.string().optional().default(''),
+  PEPSI_API_PASSWORD: z.string().optional().default(''),
+  PEPSI_API_TOKEN: z.string().optional().default(''), // pre-issued token; skips login
+  PEPSI_PROJECTS_PATH: z.string().default('/projects'), // expected endpoint (flip-ready)
+  PEPSI_SYNC_ENABLED: bool(false), // when true, the scheduled background sync runs
+  PEPSI_SYNC_INTERVAL_MS: z.coerce.number().default(30 * 60 * 1000), // 30 min
 });
 
 const parsed = schema.safeParse(process.env);
@@ -76,13 +87,28 @@ export const isProd = env.NODE_ENV === 'production';
 export const isTest = env.NODE_ENV === 'test';
 export const isDev = env.NODE_ENV === 'development';
 
-// Guardrail: never allow default JWT secrets in production.
+// Guardrails: refuse to boot in production with insecure defaults.
 if (isProd) {
+  const fail = (msg) => {
+    // eslint-disable-next-line no-console
+    console.error(`❌ ${msg}`);
+    process.exit(1);
+  };
+
   const weak = ['dev-access-secret-change-me', 'dev-refresh-secret-change-me', 'change-me-access-secret', 'change-me-refresh-secret'];
   if (weak.includes(env.JWT_ACCESS_SECRET) || weak.includes(env.JWT_REFRESH_SECRET)) {
-    // eslint-disable-next-line no-console
-    console.error('❌ Refusing to start in production with default JWT secrets. Set JWT_ACCESS_SECRET and JWT_REFRESH_SECRET.');
-    process.exit(1);
+    fail('Refusing to start in production with default JWT secrets. Set JWT_ACCESS_SECRET and JWT_REFRESH_SECRET.');
+  }
+
+  // The default seed password would create a super admin with a publicly-known
+  // credential. Force operators to set a real one.
+  if (env.SEED_ADMIN_PASSWORD === 'Admin@12345') {
+    fail('Refusing to start in production with the default SEED_ADMIN_PASSWORD. Set a strong SEED_ADMIN_PASSWORD.');
+  }
+
+  // A real database must be configured in production (memory DB is test-only).
+  if (!env.MONGODB_URI) {
+    fail('MONGODB_URI is required in production.');
   }
 }
 

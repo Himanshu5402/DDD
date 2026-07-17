@@ -136,9 +136,11 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          <Alert severity="info" variant="outlined" sx={{ mt: 3, fontSize: 12.5 }}>
-            Dev seed admin: <b>admin@itsybizzz.local</b> / <b>Admin@12345</b>
-          </Alert>
+          {import.meta.env.DEV && (
+            <Alert severity="info" variant="outlined" sx={{ mt: 3, fontSize: 12.5 }}>
+              Dev seed admin: <b>admin@itsybizzz.local</b> / <b>Admin@12345</b>
+            </Alert>
+          )}
         </Paper>
       </Box>
     </Box>

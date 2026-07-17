@@ -1,11 +1,25 @@
 import asyncHandler from '../../utils/asyncHandler.js';
 import ApiResponse from '../../utils/ApiResponse.js';
 import { broadcast } from '../../socket/index.js';
+import { notifyMany } from '../notifications/notifications.service.js';
 import * as service from './tasks.service.js';
 
 /** Notify connected clients that the board changed so they can refetch. */
 function emitChange(type, taskId) {
   broadcast('tasks:changed', { type, taskId: String(taskId), at: Date.now() });
+}
+
+/** Real-time personal notification for an assignment/delegation hop. */
+function notifyAssignment(recipientIds, actor, task, type) {
+  const verb = type === 'task_delegated' ? 'delegated a task to you' : 'assigned you a task';
+  return notifyMany(recipientIds, {
+    actor: actor._id,
+    type,
+    message: `${actor.name} ${verb}: "${task.title}"`,
+    entityType: 'task',
+    entityId: task._id,
+    link: `/tasks?task=${task._id}`,
+  });
 }
 
 export const list = asyncHandler(async (req, res) => {
@@ -26,19 +40,51 @@ export const getOne = asyncHandler(async (req, res) => {
 export const create = asyncHandler(async (req, res) => {
   const task = await service.createTask(req.body, req.user);
   emitChange('created', task._id);
+  const assigneeIds = (task.assignees || []).map((a) => a._id || a);
+  if (assigneeIds.length) notifyAssignment(assigneeIds, req.user, task, 'task_assigned');
   return ApiResponse.created(res, { task }, 'Task created');
 });
 
 export const update = asyncHandler(async (req, res) => {
-  const task = await service.updateTask(req.params.id, req.body, req.user);
+  const { task, addedAssignees } = await service.updateTask(req.params.id, req.body, req.user);
   emitChange('updated', task._id);
+  if (addedAssignees.length) notifyAssignment(addedAssignees, req.user, task, 'task_assigned');
   return ApiResponse.ok(res, { task }, 'Task updated');
 });
 
+export const delegate = asyncHandler(async (req, res) => {
+  const { task, targets } = await service.delegateTask(req.params.id, req.body, {
+    user: req.user,
+    permissions: req.permissions,
+    isSuperAdmin: req.isSuperAdmin,
+  });
+  emitChange('updated', task._id);
+  notifyAssignment(targets.map((t) => t._id), req.user, task, 'task_delegated');
+  return ApiResponse.ok(res, { task }, 'Task delegated');
+});
+
 export const move = asyncHandler(async (req, res) => {
-  const { task, spawned } = await service.moveTask(req.params.id, req.body, req.user);
+  const { task, spawned, completedNow } = await service.moveTask(req.params.id, req.body, req.user);
   emitChange('moved', task._id);
   if (spawned) emitChange('created', spawned._id);
+
+  // Close the loop: whoever assigned/delegated/created the task hears it's done.
+  if (completedNow) {
+    const recipients = new Set();
+    if (task.assignedBy) recipients.add(String(task.assignedBy._id || task.assignedBy));
+    if (task.createdBy) recipients.add(String(task.createdBy._id || task.createdBy));
+    for (const hop of task.delegationChain || []) {
+      if (hop.from) recipients.add(String(hop.from));
+    }
+    notifyMany([...recipients], {
+      actor: req.user._id,
+      type: 'task_completed',
+      message: `${req.user.name} completed the task: "${task.title}"`,
+      entityType: 'task',
+      entityId: task._id,
+      link: `/tasks?task=${task._id}`,
+    });
+  }
   return ApiResponse.ok(res, { task, spawned }, 'Task moved');
 });
 

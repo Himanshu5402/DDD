@@ -28,6 +28,11 @@ router.use(authenticate);
 
 router.get('/', authorize(M, ACTIONS.READ), validate({ query: listUsersSchema }), c.list);
 
+// Personal/directory routes — authenticate-only (no users:read needed), and
+// registered before /:id so the literal paths aren't captured as ids.
+router.get('/my-team', c.myTeam);
+router.get('/org-chart', c.orgChart);
+
 router.post(
   '/',
   authorize(M, ACTIONS.CREATE),

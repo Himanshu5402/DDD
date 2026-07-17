@@ -13,7 +13,7 @@ export const PROJECT_STATUSES = Object.freeze([
 export const PROJECT_SOURCES = Object.freeze(['manual', 'pepsi']);
 export const PROJECT_HEALTH = Object.freeze(['on_track', 'at_risk', 'critical', '']);
 export const PROJECT_WORK_TYPES = Object.freeze(['HW', 'SW', 'HW+SW', '']);
-export const MILESTONE_STATUSES = Object.freeze(['done', 'active', 'in_progress', 'planned', 'pending']);
+export const MILESTONE_STATUSES = Object.freeze(['done', 'active', 'in_progress', 'planned', 'pending', 'blocked']);
 
 // PEPSI portal's 8-stage execution cycle (source of truth for stage names).
 export const PEPSI_STAGES = Object.freeze([
@@ -119,6 +119,54 @@ const projectSchema = new Schema(
         name: { type: String, required: true },
         role: { type: String, default: '' },
         utilization: { type: Number, min: 0, max: 100 },
+      },
+    ],
+    // Full 8-stage execution breakdown (PEPSI stage cycle) with per-stage progress.
+    stages: [
+      {
+        name: { type: String, required: true },
+        status: { type: String, default: '' }, // Completed / In Progress / Blocked / Pending
+        progress: { type: Number, min: 0, max: 100, default: 0 },
+      },
+    ],
+    // Non-conformance reports raised in the portal QC process.
+    ncrs: [
+      {
+        externalId: { type: String, default: '' }, // e.g. NCR-018
+        severity: { type: String, default: '' }, // Major / Minor
+        status: { type: String, default: '' }, // Open / CAPA / Closed
+        ageDays: { type: Number, default: 0 },
+        title: { type: String, required: true },
+        owner: { type: String, default: '' },
+        correctiveAction: { type: String, default: '' },
+      },
+    ],
+    // QC / production tests with pass-fail metric rows.
+    tests: [
+      {
+        externalId: { type: String, default: '' },
+        name: { type: String, required: true },
+        type: { type: String, default: '' }, // Production Test / FAT
+        status: { type: String, default: '' }, // PASS / RUNNING / BLOCKED / PLANNED / FAIL
+        window: { type: String, default: '' },
+        metrics: [
+          {
+            name: { type: String, default: '' },
+            target: { type: String, default: '' },
+            actual: { type: String, default: '' },
+            pass: { type: Boolean, default: false },
+          },
+        ],
+      },
+    ],
+    // Change requests (scope / cost / schedule impact) from the portal.
+    changeRequests: [
+      {
+        externalId: { type: String, default: '' }, // e.g. CR-011
+        scope: { type: String, required: true },
+        cost: { type: String, default: '' }, // portal-formatted, e.g. "+₹3.8L"
+        schedule: { type: String, default: '' }, // e.g. "+9 days"
+        status: { type: String, default: '' }, // Draft / Client Review / Approved / Rejected
       },
     ],
     lastSyncedAt: { type: Date },

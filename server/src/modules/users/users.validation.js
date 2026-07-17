@@ -38,6 +38,7 @@ export const updateUserSchema = z.object({
   company: objectId.nullable().optional(),
   avatar: z.string().optional(),
   roles: z.array(objectId).optional(),
+  reportsTo: objectId.nullable().optional(),
   customFields: z.record(z.any()).optional(),
 });
 

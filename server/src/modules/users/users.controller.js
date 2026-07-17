@@ -7,6 +7,18 @@ export const list = asyncHandler(async (req, res) => {
   return ApiResponse.paginated(res, items, { page, limit, total }, 'Users');
 });
 
+// Personal: the caller's direct reports — needs no users:read (own team only).
+export const myTeam = asyncHandler(async (req, res) => {
+  const team = await service.getMyTeam(req.user._id);
+  return ApiResponse.ok(res, { team }, 'My team');
+});
+
+// Company directory tree — minimal fields, visible to any authenticated user.
+export const orgChart = asyncHandler(async (req, res) => {
+  const users = await service.getOrgChart();
+  return ApiResponse.ok(res, { users }, 'Org chart');
+});
+
 export const getOne = asyncHandler(async (req, res) => {
   const user = await service.getUser(req.params.id);
   return ApiResponse.ok(res, { user });
@@ -18,7 +30,8 @@ export const create = asyncHandler(async (req, res) => {
 });
 
 export const update = asyncHandler(async (req, res) => {
-  const user = await service.updateUser(req.params.id, req.body);
+  const actor = { id: req.user._id, isSuperAdmin: req.isSuperAdmin };
+  const user = await service.updateUser(req.params.id, req.body, actor);
   return ApiResponse.ok(res, { user }, 'User updated');
 });
 
@@ -28,7 +41,8 @@ export const setStatus = asyncHandler(async (req, res) => {
 });
 
 export const assignRoles = asyncHandler(async (req, res) => {
-  const user = await service.assignRoles(req.params.id, req.body.roles);
+  const actor = { id: req.user._id, isSuperAdmin: req.isSuperAdmin };
+  const user = await service.assignRoles(req.params.id, req.body.roles, actor);
   return ApiResponse.ok(res, { user }, 'Roles assigned');
 });
 

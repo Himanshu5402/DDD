@@ -1,4 +1,8 @@
 import Contact from '../../models/contact.model.js';
+import Project from '../../models/project.model.js';
+import Renewal from '../../models/renewal.model.js';
+import SupportTicket from '../../models/supportTicket.model.js';
+import Transaction from '../../models/transaction.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { parsePagination } from '../../utils/pagination.js';
 import { validateValues as validateCustomFields } from '../customFields/customFields.service.js';
@@ -73,6 +77,27 @@ export async function updateContact(id, data) {
 export async function deleteContact(id) {
   const contact = await Contact.findById(id);
   if (!contact) throw ApiError.notFound('Contact not found');
+
+  // Block deletion while the contact is still referenced elsewhere, so we never
+  // strand dangling ObjectIds across projects / renewals / tickets / finance.
+  const [projects, renewals, tickets, transactions] = await Promise.all([
+    Project.countDocuments({ customer: id }),
+    Renewal.countDocuments({ customer: id }),
+    SupportTicket.countDocuments({ customer: id }),
+    Transaction.countDocuments({ 'party.contact': id }),
+  ]);
+
+  const refs = [];
+  if (projects) refs.push(`${projects} project(s)`);
+  if (renewals) refs.push(`${renewals} renewal(s)`);
+  if (tickets) refs.push(`${tickets} support ticket(s)`);
+  if (transactions) refs.push(`${transactions} transaction(s)`);
+  if (refs.length) {
+    throw ApiError.badRequest(
+      `Cannot delete: contact is referenced by ${refs.join(', ')}. Reassign or remove those first.`
+    );
+  }
+
   await contact.deleteOne();
   return { success: true };
 }

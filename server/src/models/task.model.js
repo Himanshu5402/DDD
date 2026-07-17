@@ -55,6 +55,20 @@ const taskSchema = new Schema(
     watchers: [{ type: Schema.Types.ObjectId, ref: 'User' }],
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
 
+    // Who last assigned/delegated this task (accountability for the current hop).
+    assignedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+
+    // Full assignment history — one entry per hop (admin→manager, manager→dev, …).
+    // `from` is the acting user; `to` the users it was assigned to at that hop.
+    delegationChain: [
+      {
+        from: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+        to: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+        note: { type: String, default: '', trim: true },
+        at: { type: Date, default: Date.now },
+      },
+    ],
+
     startDate: { type: Date },
     dueDate: { type: Date, index: true },
     completedAt: { type: Date },

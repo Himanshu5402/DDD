@@ -99,6 +99,39 @@ export function mapPepsiProject(p) {
       role: t.role || '',
       utilization: t.utilization != null ? Number(t.utilization) : undefined,
     })),
+    stages: (p.stages || []).map((s) => ({
+      name: s.name,
+      status: s.status || '',
+      progress: Math.max(0, Math.min(100, Number(s.progress) || 0)),
+    })),
+    ncrs: (p.ncrs || []).map((n) => ({
+      externalId: n.externalId || n.id || '',
+      severity: n.severity || n.sev || '',
+      status: n.status || n.st || '',
+      ageDays: Number(n.ageDays ?? n.age) || 0,
+      title: n.title,
+      owner: n.owner || '',
+      correctiveAction: n.correctiveAction || n.ca || '',
+    })),
+    tests: (p.tests || []).map((t) => ({
+      externalId: t.externalId || t.id || '',
+      name: t.name,
+      type: t.type || '',
+      status: t.status || '',
+      window: t.window || t.win || '',
+      metrics: (t.metrics || t.m || []).map((m) =>
+        Array.isArray(m)
+          ? { name: m[0], target: m[1], actual: m[2], pass: !!m[3] }
+          : { name: m.name, target: m.target, actual: m.actual, pass: !!m.pass }
+      ),
+    })),
+    changeRequests: (p.changeRequests || []).map((c) => ({
+      externalId: c.externalId || c.id || '',
+      scope: c.scope,
+      cost: c.cost || '',
+      schedule: c.schedule || c.sch || '',
+      status: c.status || c.st || '',
+    })),
     lastSyncedAt: new Date(),
   };
 }

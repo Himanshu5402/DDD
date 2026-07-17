@@ -1,7 +1,7 @@
 {
-  "capturedAt": "2026-07-16",
-  "source": "https://pepsi.itsybizz.com (PEPSI · Project Execution & Program Services)",
-  "note": "Manual snapshot of the live portal. Replaced by the PEPSI API feed when available — same wire shape, POST /integrations/pepsi/sync.",
+  "capturedAt": "2026-07-17",
+  "source": "https://pepsi.itsybizz.com (PEPSI · Project Execution & Program Services) — live portal capture",
+  "note": "Regenerated from live portal embedded data. API base https://pepsiapi.itsybizz.com/api is auth-only today (no project endpoints yet). Feed real project data to POST /integrations/pepsi/sync in this wire shape.",
   "projects": [
     {
       "externalId": "PRJ-2601",
@@ -16,12 +16,13 @@
       "endDate": "2026-09-30",
       "stageIndex": 6,
       "stageName": "On-Ground Production Testing",
+      "stageTotal": 8,
       "health": "At Risk",
       "spi": 0.91,
       "cpi": 0.96,
       "progress": 64,
       "statusNote": "On-Ground Production Testing (SAT) underway. Bin-sensor re-verify from QA raised NCR-021 (closed). Throughput SAT window 18–21 Aug.",
-      "insightNote": "Production Testing gate has 1 open QA finding + WMS latency 2.3s vs <2s target. Each slip day compresses handover float.",
+      "insightNote": "PRJ-2601 · Production Testing gate has 1 open QA finding + WMS latency 2.3s vs <2s target. Each slip day compresses handover float.",
       "milestones": [
         { "name": "Design Freeze", "date": "2026-02-20", "status": "done" },
         { "name": "Hardware FAT", "date": "2026-04-28", "status": "done" },
@@ -35,30 +36,41 @@
         { "category": "Lodging & Food", "budget": 150000, "actual": 96500 },
         { "category": "Consumables", "budget": 90000, "actual": 41200 }
       ],
-      "openItems": { "ncrs": 0, "tasks": 4, "expenses": 1 },
+      "openItems": { "ncrs": 0, "tasks": 4, "expenses": 0 },
       "quotations": [
-        {
-          "externalId": "OPP-3006",
-          "title": "JCI Phase-2 — Conveyor Analytics",
-          "stage": "Qualified",
-          "estValue": 2400000,
-          "probability": 40,
-          "closeDate": "2026-09-05",
-          "owner": "Neha Sharma"
-        }
+        { "externalId": "OPP-3006", "title": "JCI Phase-2 — Conveyor Analytics", "stage": "Qualified", "estValue": 2400000, "probability": 40, "closeDate": "2026-09-05", "owner": "Neha Sharma" }
       ],
       "risks": [
-        {
-          "probability": "Med",
-          "impact": "High",
-          "description": "Client SAT window clash with JCI month-end dispatch peak"
-        }
+        { "probability": "Med", "impact": "High", "description": "Client SAT window clash with JCI month-end dispatch peak" }
       ],
       "team": [
-        { "name": "Pankaj Shukla", "role": "Project Manager" },
+        { "name": "Pankaj Shukla", "role": "" },
         { "name": "Ravi Kant", "role": "Lead Engineer", "utilization": 85 },
         { "name": "Deepak Yadav", "role": "Site Engineer", "utilization": 92 },
         { "name": "Amit Bisht", "role": "Field Technician", "utilization": 78 }
+      ],
+      "stages": [
+        { "name": "Initiation & Planning", "status": "Completed", "progress": 100 },
+        { "name": "Hardware Procurement & Mapping", "status": "Completed", "progress": 100 },
+        { "name": "Software Development", "status": "Completed", "progress": 100 },
+        { "name": "Hardware QA & FAT", "status": "Completed", "progress": 100 },
+        { "name": "Software QA & Validation", "status": "Completed", "progress": 100 },
+        { "name": "On-Ground Production Testing", "status": "In Progress", "progress": 64 },
+        { "name": "Adhoc Requirements & Execution", "status": "Pending", "progress": 0 },
+        { "name": "Project Completion & Handover", "status": "Pending", "progress": 0 }
+      ],
+      "ncrs": [
+        { "externalId": "NCR-021", "severity": "Major", "status": "Closed", "ageDays": 0, "title": "Bin presence sensor false-negative, aisle A3 (14 bins)", "owner": "Deepak Yadav", "correctiveAction": "Sensor bracket re-alignment + gain retune; 100% rescan OK" }
+      ],
+      "tests": [
+        { "externalId": "SAT-2601-01", "name": "JCI ASRS Throughput SAT", "type": "Production Test", "status": "RUNNING", "window": "18–21 Aug 2026", "metrics": [
+          { "name": "Dual-command cycles/h", "target": "≥42", "actual": "43.1", "pass": true },
+          { "name": "Put-away accuracy", "target": "≥99.7%", "actual": "99.8%", "pass": true },
+          { "name": "WMS order latency", "target": "<2 s", "actual": "2.3 s", "pass": false }
+        ] }
+      ],
+      "changeRequests": [
+        { "externalId": "CR-007", "scope": "Aisle A3 bin-sensor spec upgrade (IP67)", "cost": "+₹0.6L", "schedule": "0", "status": "Approved" }
       ]
     },
     {
@@ -66,7 +78,7 @@
       "code": "PRJ-2602",
       "name": "EKC SmartFactory Phase-2",
       "customerName": "Everest Kanto Cylinder Ltd.",
-      "location": "Tarapur",
+      "location": "Tarapur, MH",
       "workType": "SW",
       "contractValue": 18500000,
       "pmName": "Neha Sharma",
@@ -74,31 +86,64 @@
       "endDate": "2026-08-15",
       "stageIndex": 6,
       "stageName": "On-Ground Production Testing",
+      "stageTotal": 8,
       "health": "On Track",
       "spi": 1.02,
       "cpi": 1.05,
       "progress": 78,
+      "statusNote": "72h production soak running on 60-machine ingest. OEE parity currently −2.6% vs SAP counters — within tolerance band, monitoring.",
+      "insightNote": "",
       "milestones": [
-        { "name": "72h Soak Test", "date": "2026-07-06", "status": "in_progress" }
+        { "name": "SRS Sign-off", "date": "2026-02-25", "status": "done" },
+        { "name": "SW QA Complete", "date": "2026-05-30", "status": "done" },
+        { "name": "On-Ground Deploy", "date": "2026-06-18", "status": "done" },
+        { "name": "72h Soak Test", "date": "2026-07-06", "status": "active" },
+        { "name": "Handover", "date": "2026-08-15", "status": "pending" }
       ],
+      "budgetLines": [
+        { "category": "Travel", "budget": 160000, "actual": 118000 },
+        { "category": "Software / Cloud", "budget": 240000, "actual": 171000 },
+        { "category": "Lodging & Food", "budget": 110000, "actual": 64000 }
+      ],
+      "openItems": { "ncrs": 0, "tasks": 3, "expenses": 0 },
       "quotations": [
-        {
-          "externalId": "OPP-3003",
-          "title": "EKC Plant-3 Vision Inspection",
-          "stage": "Negotiation",
-          "estValue": 7200000,
-          "probability": 70,
-          "closeDate": "2026-08-10",
-          "owner": "Neha Sharma"
-        }
-      ]
+        { "externalId": "OPP-3003", "title": "EKC Plant-3 Vision Inspection", "stage": "Negotiation", "estValue": 7200000, "probability": 70, "closeDate": "2026-08-10", "owner": "Neha Sharma" }
+      ],
+      "risks": [
+        { "probability": "Med", "impact": "Low", "description": "Monsoon power dips at Tarapur during soak" }
+      ],
+      "team": [
+        { "name": "Neha Sharma", "role": "Project Manager", "utilization": 74 },
+        { "name": "Vikas Jha", "role": "Automation Engineer", "utilization": 88 },
+        { "name": "Pooja Rane", "role": "QA Engineer", "utilization": 66 }
+      ],
+      "stages": [
+        { "name": "Initiation & Planning", "status": "Completed", "progress": 100 },
+        { "name": "Hardware Procurement & Mapping", "status": "Completed", "progress": 100 },
+        { "name": "Software Development", "status": "Completed", "progress": 100 },
+        { "name": "Hardware QA & FAT", "status": "Completed", "progress": 100 },
+        { "name": "Software QA & Validation", "status": "Completed", "progress": 100 },
+        { "name": "On-Ground Production Testing", "status": "In Progress", "progress": 70 },
+        { "name": "Adhoc Requirements & Execution", "status": "Pending", "progress": 0 },
+        { "name": "Project Completion & Handover", "status": "Pending", "progress": 0 }
+      ],
+      "ncrs": [],
+      "tests": [
+        { "externalId": "PT-2602-04", "name": "72h Soak — 60-Machine Ingest", "type": "Production Test", "status": "RUNNING", "window": "03–06 Jul 2026", "metrics": [
+          { "name": "Agents online", "target": "60/60", "actual": "60/60", "pass": true },
+          { "name": "p95 ingest latency", "target": "<400 ms", "actual": "312 ms", "pass": true },
+          { "name": "OEE parity vs SAP", "target": "±3%", "actual": "−2.6%", "pass": true },
+          { "name": "KPI parity (rejects)", "target": "±2%", "actual": "−2.6%", "pass": false }
+        ] }
+      ],
+      "changeRequests": []
     },
     {
       "externalId": "PRJ-2603",
       "code": "PRJ-2603",
       "name": "Sanmati Packaging IoT",
       "customerName": "Sanmati Packaging",
-      "location": "Faridabad",
+      "location": "Faridabad, HR",
       "workType": "HW+SW",
       "contractValue": 3200000,
       "pmName": "Ravi Kant",
@@ -106,32 +151,63 @@
       "endDate": "2026-07-31",
       "stageIndex": 7,
       "stageName": "Adhoc Requirements & Execution",
+      "stageTotal": 8,
       "health": "On Track",
-      "spi": 1.0,
+      "spi": 1,
       "cpi": 1.03,
       "progress": 82,
-      "insightNote": "All production-test metrics green for 14 days. Recommend scheduling handover documentation pack this week.",
+      "statusNote": "Delta AS218TX + Mamata Vega 600 feeds live. 48h soak PASSED. Adhoc: PKG-03 RS-485 shield fix + dashboard tweaks before handover.",
+      "insightNote": "PRJ-2603 · All production-test metrics green for 14 days. Recommend scheduling handover documentation pack this week.",
       "milestones": [
-        { "name": "Adhoc & Punch-list", "date": "2026-07-10", "status": "in_progress" },
-        { "name": "Handover", "date": "2026-07-31", "status": "planned" }
+        { "name": "PLC Mapping", "date": "2026-03-28", "status": "done" },
+        { "name": "SW QA", "date": "2026-05-15", "status": "done" },
+        { "name": "48h Soak", "date": "2026-06-20", "status": "done" },
+        { "name": "Adhoc & Punch-list", "date": "2026-07-10", "status": "active" },
+        { "name": "Handover", "date": "2026-07-31", "status": "pending" }
       ],
+      "budgetLines": [
+        { "category": "Travel", "budget": 90000, "actual": 71400 },
+        { "category": "Tools & Equipment", "budget": 60000, "actual": 38400 },
+        { "category": "Consumables", "budget": 40000, "actual": 17800 }
+      ],
+      "openItems": { "ncrs": 1, "tasks": 2, "expenses": 0 },
       "quotations": [
-        {
-          "externalId": "OPP-3004",
-          "title": "Sanmati Line-2 IoT Expansion",
-          "stage": "Won",
-          "estValue": 2800000,
-          "probability": 100,
-          "closeDate": "2026-07-04",
-          "owner": "Rohit Malhotra"
-        }
-      ]
+        { "externalId": "OPP-3004", "title": "Sanmati Line-2 IoT Expansion", "stage": "Won", "estValue": 2800000, "probability": 100, "closeDate": "2026-07-04", "owner": "Rohit Malhotra" }
+      ],
+      "risks": [],
+      "team": [
+        { "name": "Ravi Kant", "role": "Lead Engineer", "utilization": 85 },
+        { "name": "Sunil Kumar", "role": "Production Tech", "utilization": 81 }
+      ],
+      "stages": [
+        { "name": "Initiation & Planning", "status": "Completed", "progress": 100 },
+        { "name": "Hardware Procurement & Mapping", "status": "Completed", "progress": 100 },
+        { "name": "Software Development", "status": "Completed", "progress": 100 },
+        { "name": "Hardware QA & FAT", "status": "Completed", "progress": 100 },
+        { "name": "Software QA & Validation", "status": "Completed", "progress": 100 },
+        { "name": "On-Ground Production Testing", "status": "Completed", "progress": 100 },
+        { "name": "Adhoc Requirements & Execution", "status": "In Progress", "progress": 55 },
+        { "name": "Project Completion & Handover", "status": "Pending", "progress": 0 }
+      ],
+      "ncrs": [
+        { "externalId": "NCR-022", "severity": "Minor", "status": "Open", "ageDays": 4, "title": "RS-485 shield earthed both ends — noise on PKG-03 counter", "owner": "Ravi Kant", "correctiveAction": "Re-terminate shield single-end; re-verify counts 24h" }
+      ],
+      "tests": [
+        { "externalId": "PT-2603-01", "name": "48h Production Soak — Mamata Vega 600+", "type": "Production Test", "status": "PASS", "window": "18–20 Jun 2026", "metrics": [
+          { "name": "Uptime %", "target": "≥97", "actual": "99.2", "pass": true },
+          { "name": "Cycle count parity", "target": "±2%", "actual": "+0.4%", "pass": true },
+          { "name": "Alarm MTTA", "target": "<5 min", "actual": "2.1 min", "pass": true },
+          { "name": "Data gap events", "target": "0", "actual": "0", "pass": true }
+        ] }
+      ],
+      "changeRequests": []
     },
     {
       "externalId": "PRJ-2604",
       "code": "PRJ-2604",
       "name": "JPM Digitization Wave-3",
       "customerName": "JP Minda Group",
+      "location": "Bawal, HR",
       "workType": "SW",
       "contractValue": 6400000,
       "pmName": "Neha Sharma",
@@ -139,17 +215,50 @@
       "endDate": "2026-10-15",
       "stageIndex": 3,
       "stageName": "Software Development",
+      "stageTotal": 8,
       "health": "At Risk",
       "spi": 0.88,
       "cpi": 0.99,
       "progress": 22,
-      "insightNote": "Software/Cloud budget line at 92%. At current burn, EAC exceeds line by ₹38k before SW QA. Suggest CR-011 cost capture.",
+      "statusNote": "Software Development stage. SAP HANA template-sync scope grew +3 checklists; CR-011 under client review. Budget burn 92% of stage line.",
+      "insightNote": "PRJ-2604 · Software/Cloud budget line at 92%. At current burn, EAC exceeds line by ₹38k before SW QA. Suggest CR-011 cost capture.",
+      "milestones": [
+        { "name": "SRS Sign-off", "date": "2026-04-24", "status": "done" },
+        { "name": "Design Review", "date": "2026-05-20", "status": "done" },
+        { "name": "Dev Complete", "date": "2026-08-10", "status": "active" },
+        { "name": "SW QA", "date": "2026-09-05", "status": "pending" },
+        { "name": "Handover", "date": "2026-10-15", "status": "pending" }
+      ],
+      "budgetLines": [
+        { "category": "Software / Cloud", "budget": 300000, "actual": 276000 },
+        { "category": "Travel", "budget": 80000, "actual": 31000 }
+      ],
+      "openItems": { "ncrs": 1, "tasks": 1, "expenses": 0 },
+      "quotations": [],
       "risks": [
-        {
-          "probability": "High",
-          "impact": "Med",
-          "description": "SAP HANA scope creep via template CRs"
-        }
+        { "probability": "High", "impact": "Med", "description": "SAP HANA scope creep via template CRs" }
+      ],
+      "team": [
+        { "name": "Neha Sharma", "role": "Project Manager", "utilization": 74 },
+        { "name": "Vikas Jha", "role": "Automation Engineer", "utilization": 88 },
+        { "name": "Ankit Verma", "role": "Software Engineer", "utilization": 70 }
+      ],
+      "stages": [
+        { "name": "Initiation & Planning", "status": "Completed", "progress": 100 },
+        { "name": "Hardware Procurement & Mapping", "status": "Completed", "progress": 100 },
+        { "name": "Software Development", "status": "In Progress", "progress": 47 },
+        { "name": "Hardware QA & FAT", "status": "Pending", "progress": 0 },
+        { "name": "Software QA & Validation", "status": "Pending", "progress": 0 },
+        { "name": "On-Ground Production Testing", "status": "Pending", "progress": 0 },
+        { "name": "Adhoc Requirements & Execution", "status": "Pending", "progress": 0 },
+        { "name": "Project Completion & Handover", "status": "Pending", "progress": 0 }
+      ],
+      "ncrs": [
+        { "externalId": "NCR-016", "severity": "Minor", "status": "CAPA", "ageDays": 11, "title": "Duplicate checklist rows on SAP template re-sync", "owner": "Vikas Jha", "correctiveAction": "Upsert key fixed; CAPA: add sync idempotency test to QA suite" }
+      ],
+      "tests": [],
+      "changeRequests": [
+        { "externalId": "CR-011", "scope": "SAP HANA template-sync: +3 checklist types, idempotent upsert", "cost": "+₹3.8L", "schedule": "+9 days", "status": "Client Review" }
       ]
     },
     {
@@ -157,6 +266,7 @@
       "code": "PRJ-2605",
       "name": "JFCL Traceability Platform",
       "customerName": "Jay Fe Cylinders Ltd.",
+      "location": "IMT Bawal, HR",
       "workType": "SW",
       "contractValue": 9800000,
       "pmName": "Pankaj Shukla",
@@ -164,20 +274,48 @@
       "endDate": "2027-02-28",
       "stageIndex": 1,
       "stageName": "Initiation & Planning",
+      "stageTotal": 8,
       "health": "On Track",
-      "spi": 1.0,
-      "cpi": 1.0,
+      "spi": 1,
+      "cpi": 1,
       "progress": 8,
+      "statusNote": "Kick-off done. 23-stage manufacturing scope mapping in Initiation & Planning. IS 15490:2017 compliance matrix drafting.",
+      "insightNote": "",
       "milestones": [
-        { "name": "SRS Sign-off", "date": "2026-07-25", "status": "in_progress" }
-      ]
+        { "name": "Kick-off", "date": "2026-06-22", "status": "done" },
+        { "name": "SRS Sign-off", "date": "2026-07-25", "status": "active" },
+        { "name": "Design Freeze", "date": "2026-08-30", "status": "pending" }
+      ],
+      "budgetLines": [
+        { "category": "Travel", "budget": 60000, "actual": 8200 }
+      ],
+      "openItems": { "ncrs": 0, "tasks": 0, "expenses": 0 },
+      "quotations": [],
+      "risks": [],
+      "team": [
+        { "name": "Pankaj Shukla", "role": "" },
+        { "name": "Ankit Verma", "role": "Software Engineer", "utilization": 70 }
+      ],
+      "stages": [
+        { "name": "Initiation & Planning", "status": "In Progress", "progress": 35 },
+        { "name": "Hardware Procurement & Mapping", "status": "Pending", "progress": 0 },
+        { "name": "Software Development", "status": "Pending", "progress": 0 },
+        { "name": "Hardware QA & FAT", "status": "Pending", "progress": 0 },
+        { "name": "Software QA & Validation", "status": "Pending", "progress": 0 },
+        { "name": "On-Ground Production Testing", "status": "Pending", "progress": 0 },
+        { "name": "Adhoc Requirements & Execution", "status": "Pending", "progress": 0 },
+        { "name": "Project Completion & Handover", "status": "Pending", "progress": 0 }
+      ],
+      "ncrs": [],
+      "tests": [],
+      "changeRequests": []
     },
     {
       "externalId": "PRJ-2606",
       "code": "PRJ-2606",
       "name": "Kontrolix S1 Batch-04",
       "customerName": "ITSYBIZZ Internal (Kontrolix)",
-      "location": "ITSYBIZZ Works",
+      "location": "ITSYBIZZ Works, FBD",
       "workType": "HW",
       "contractValue": 1500000,
       "pmName": "Deepak Yadav",
@@ -185,34 +323,56 @@
       "endDate": "2026-08-05",
       "stageIndex": 4,
       "stageName": "Hardware QA & FAT",
+      "stageTotal": 8,
       "health": "Critical",
       "spi": 0.79,
       "cpi": 0.9,
       "progress": 38,
-      "insightNote": "74% probability of missing 18-Jul dispatch unless PSU re-burn-in starts by 10-Jul. Critical path: NCR-018 → HW QA & FAT → Handover.",
-      "openItems": { "ncrs": 1, "tasks": 0, "expenses": 0 },
+      "statusNote": "Hardware QA & FAT BLOCKED — PSU burn-in failure on 3/25 units (NCR-018, Major). Replacement SMPS lot ETA 09-Jul. Dispatch at risk.",
+      "insightNote": "PRJ-2606 · 74% probability of missing 18-Jul dispatch unless PSU re-burn-in starts by 10-Jul. Critical path: NCR-018 → HW QA & FAT → Handover.",
       "milestones": [
-        { "name": "HW QA & FAT", "date": "2026-07-02", "status": "planned" },
-        { "name": "Handover", "date": "2026-08-05", "status": "planned" }
+        { "name": "Procure & Map", "date": "2026-05-15", "status": "done" },
+        { "name": "Assembly", "date": "2026-06-10", "status": "done" },
+        { "name": "HW QA & FAT", "date": "2026-07-02", "status": "blocked" },
+        { "name": "Handover", "date": "2026-08-05", "status": "pending" }
       ],
+      "budgetLines": [
+        { "category": "Consumables", "budget": 120000, "actual": 102000 },
+        { "category": "Freight & Cartage", "budget": 70000, "actual": 21000 }
+      ],
+      "openItems": { "ncrs": 1, "tasks": 1, "expenses": 0 },
       "quotations": [
-        {
-          "externalId": "OPP-3007",
-          "title": "Kontrolix OEM — White-label Batch",
-          "stage": "Lost",
-          "estValue": 1800000,
-          "probability": 0,
-          "closeDate": "2026-06-25",
-          "owner": "Rohit Malhotra"
-        }
+        { "externalId": "OPP-3007", "title": "Kontrolix OEM — White-label Batch", "stage": "Lost", "estValue": 1800000, "probability": 0, "closeDate": "2026-06-25", "owner": "Rohit Malhotra" }
       ],
       "risks": [
-        {
-          "probability": "High",
-          "impact": "Med",
-          "description": "SMPS vendor lot delay beyond 09-Jul slips batch dispatch"
-        }
-      ]
+        { "probability": "High", "impact": "Med", "description": "SMPS vendor lot delay beyond 09-Jul slips batch dispatch" }
+      ],
+      "team": [
+        { "name": "Deepak Yadav", "role": "Site Engineer", "utilization": 92 },
+        { "name": "Sunil Kumar", "role": "Production Tech", "utilization": 81 },
+        { "name": "Amit Bisht", "role": "Field Technician", "utilization": 78 }
+      ],
+      "stages": [
+        { "name": "Initiation & Planning", "status": "Completed", "progress": 100 },
+        { "name": "Hardware Procurement & Mapping", "status": "Completed", "progress": 100 },
+        { "name": "Software Development", "status": "Completed", "progress": 100 },
+        { "name": "Hardware QA & FAT", "status": "Blocked", "progress": 60 },
+        { "name": "Software QA & Validation", "status": "Pending", "progress": 0 },
+        { "name": "On-Ground Production Testing", "status": "Pending", "progress": 0 },
+        { "name": "Adhoc Requirements & Execution", "status": "Pending", "progress": 0 },
+        { "name": "Project Completion & Handover", "status": "Pending", "progress": 0 }
+      ],
+      "ncrs": [
+        { "externalId": "NCR-018", "severity": "Major", "status": "Open", "ageDays": 2, "title": "PSU 24V burn-in failure — 3/25 units, thermal shutdown @ 6.2h", "owner": "Sunil Kumar", "correctiveAction": "Replacement SMPS lot (vendor B) ETA 09-Jul; 100% re-burn-in" }
+      ],
+      "tests": [
+        { "externalId": "FAT-2606-02", "name": "Kontrolix S1 Batch-04 HW FAT", "type": "FAT", "status": "BLOCKED", "window": "01–02 Jul 2026", "metrics": [
+          { "name": "PSU burn-in pass", "target": "25/25", "actual": "22/25", "pass": false },
+          { "name": "Modbus loopback", "target": "4/4 ports", "actual": "4/4", "pass": true },
+          { "name": "4G failover", "target": "<30 s", "actual": "18 s", "pass": true }
+        ] }
+      ],
+      "changeRequests": []
     }
   ]
 }

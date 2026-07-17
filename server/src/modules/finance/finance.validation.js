@@ -6,6 +6,12 @@ const objectId = z.string().regex(/^[a-f\d]{24}$/i, 'Invalid id');
 
 export const idParamSchema = z.object({ id: objectId });
 
+// Hard cap on any monetary value. `.finite()` rejects Infinity / -Infinity / NaN
+// (e.g. the string 'Infinity' or '1e308' coercing to a non-finite number), and
+// the max keeps one bad row from poisoning every /finance/summary aggregate.
+const MAX_MONEY = 1e12;
+const money = (min) => z.coerce.number().finite().min(min).max(MAX_MONEY);
+
 // --- Transactions ---
 
 export const listTransactionsSchema = z.object({
@@ -33,7 +39,7 @@ const linkedToSchema = z.object({
 
 export const createTransactionSchema = z.object({
   type: z.enum(TRANSACTION_TYPES),
-  amount: z.coerce.number().min(0.01),
+  amount: money(0.01),
   currency: z.string().trim().max(10).optional(),
   date: z.coerce.date().optional(),
   category: z.string().trim().max(120).optional(),
@@ -49,7 +55,7 @@ export const createTransactionSchema = z.object({
 
 export const updateTransactionSchema = z.object({
   type: z.enum(TRANSACTION_TYPES).optional(),
-  amount: z.coerce.number().min(0.01).optional(),
+  amount: money(0.01).optional(),
   currency: z.string().trim().max(10).optional(),
   date: z.coerce.date().optional(),
   category: z.string().trim().max(120).optional(),
@@ -78,7 +84,7 @@ export const createBudgetSchema = z.object({
   name: z.string().trim().min(1).max(200),
   category: z.string().trim().min(1).max(120),
   period: z.enum(BUDGET_PERIODS).optional(),
-  amount: z.coerce.number().min(0),
+  amount: money(0),
   startDate: z.coerce.date().optional(),
   endDate: z.coerce.date().optional(),
   notes: z.string().max(2000).optional(),
@@ -88,7 +94,7 @@ export const updateBudgetSchema = z.object({
   name: z.string().trim().min(1).max(200).optional(),
   category: z.string().trim().min(1).max(120).optional(),
   period: z.enum(BUDGET_PERIODS).optional(),
-  amount: z.coerce.number().min(0).optional(),
+  amount: money(0).optional(),
   startDate: z.coerce.date().nullable().optional(),
   endDate: z.coerce.date().nullable().optional(),
   notes: z.string().max(2000).optional(),

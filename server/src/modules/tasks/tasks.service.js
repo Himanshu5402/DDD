@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import Task, { TASK_STATUSES } from '../../models/task.model.js';
 import Company from '../../models/company.model.js';
+import User from '../../models/user.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { parsePagination } from '../../utils/pagination.js';
 import { validateValues as validateCustomFields } from '../customFields/customFields.service.js';
@@ -11,6 +12,7 @@ const ENTITY = 'task';
 const LIST_POPULATE = [
   { path: 'assignees', select: 'name email avatar designation' },
   { path: 'createdBy', select: 'name email avatar' },
+  { path: 'assignedBy', select: 'name email avatar' },
   { path: 'company', select: 'name code color' },
 ];
 
@@ -19,6 +21,9 @@ const DETAIL_POPULATE = [
   { path: 'company', select: 'name code color' },
   { path: 'watchers', select: 'name email' },
   { path: 'createdBy', select: 'name email avatar' },
+  { path: 'assignedBy', select: 'name email avatar designation' },
+  { path: 'delegationChain.from', select: 'name email avatar designation' },
+  { path: 'delegationChain.to', select: 'name email avatar designation' },
   { path: 'comments.author', select: 'name email avatar' },
   { path: 'timeLogs.user', select: 'name email' },
   { path: 'checklist.doneBy', select: 'name' },
@@ -116,12 +121,17 @@ export async function createTask(data, user) {
   const watchers = new Set((data.watchers || []).map(String));
   watchers.add(String(user._id)); // creator watches by default
 
+  const assignees = data.assignees || [];
+
   const task = await Task.create({
     ...data,
     status,
     customFields,
     createdBy: user._id,
     watchers: [...watchers],
+    // First assignment hop recorded at creation time.
+    assignedBy: assignees.length ? user._id : null,
+    delegationChain: assignees.length ? [{ from: user._id, to: assignees, at: new Date() }] : [],
     order: data.parent ? 0 : await nextOrderFor(status),
     completedAt: status === 'done' ? new Date() : undefined,
   });
@@ -134,11 +144,25 @@ const UPDATABLE = [
   'startDate', 'dueDate', 'tags', 'company', 'goal', 'project', 'estimatedMinutes', 'recurrence',
 ];
 
-export async function updateTask(id, data, _user) {
+export async function updateTask(id, data, user) {
   const task = await Task.findById(id);
   if (!task) throw ApiError.notFound('Task not found');
 
+  const prevAssignees = (task.assignees || []).map(String);
+
   for (const f of UPDATABLE) if (data[f] !== undefined) task[f] = data[f];
+
+  // Record assignment changes as a hop in the delegation chain.
+  let addedAssignees = [];
+  if (data.assignees !== undefined) {
+    const next = (data.assignees || []).map(String);
+    addedAssignees = next.filter((a) => !prevAssignees.includes(a));
+    const changed = addedAssignees.length || next.length !== prevAssignees.length;
+    if (changed && user) {
+      task.assignedBy = user._id;
+      task.delegationChain.push({ from: user._id, to: data.assignees, at: new Date() });
+    }
+  }
 
   if (data.customFields !== undefined) {
     const merged = { ...task.customFields, ...data.customFields };
@@ -146,7 +170,75 @@ export async function updateTask(id, data, _user) {
   }
 
   await task.save();
-  return Task.findById(task._id).populate(LIST_POPULATE);
+  const populated = await Task.findById(task._id).populate(LIST_POPULATE);
+  return { task: populated, addedAssignees };
+}
+
+/**
+ * Delegate (re-assign) a task down the org chart.
+ *
+ * Industry-standard flow: admin assigns a task to a manager; the manager
+ * delegates it to member(s) of their team. Rules:
+ *  - Privileged users (super admin, tasks:update/manage) may delegate to anyone.
+ *  - Otherwise the actor must be a CURRENT ASSIGNEE, and every target must be
+ *    one of their direct reports (User.reportsTo === actor) — a manager can
+ *    only delegate within their own team.
+ *  - The actor (and any previous assignees) become watchers, so the delegator
+ *    keeps full visibility of the task after handing it off.
+ *  - Every hop is recorded in delegationChain for the audit trail.
+ *
+ * Returns { task, targets, prevAssignees } for the controller to notify.
+ */
+export async function delegateTask(id, { assignees: targetIds, note }, { user, permissions, isSuperAdmin }) {
+  const task = await Task.findById(id);
+  if (!task) throw ApiError.notFound('Task not found');
+  if (task.status === 'done') throw ApiError.badRequest('Cannot delegate a completed task');
+
+  const targets = await User.find({ _id: { $in: targetIds }, isActive: true }).select(
+    'name email reportsTo'
+  );
+  if (targets.length !== targetIds.length) {
+    throw ApiError.badRequest('One or more target users do not exist or are inactive');
+  }
+
+  const uid = String(user._id);
+  const privileged =
+    isSuperAdmin ||
+    permissions?.has('tasks:update') ||
+    permissions?.has('tasks:manage');
+
+  if (!privileged) {
+    const isAssignee = (task.assignees || []).some((a) => String(a) === uid);
+    if (!isAssignee) {
+      throw ApiError.forbidden('You can only delegate tasks assigned to you', {
+        code: 'NOT_TASK_ASSIGNEE',
+      });
+    }
+    const outsideTeam = targets.filter((t) => String(t.reportsTo) !== uid);
+    if (outsideTeam.length) {
+      throw ApiError.forbidden(
+        `You can only delegate to your direct reports (${outsideTeam.map((t) => t.name).join(', ')} do not report to you)`,
+        { code: 'NOT_DIRECT_REPORT' }
+      );
+    }
+  }
+
+  const prevAssignees = (task.assignees || []).map(String);
+
+  // Delegator + previous assignees keep visibility as watchers.
+  const watchers = new Set((task.watchers || []).map(String));
+  watchers.add(uid);
+  prevAssignees.forEach((a) => watchers.add(a));
+  targetIds.forEach((t) => watchers.delete(String(t))); // assignees need not watch
+
+  task.assignees = targetIds;
+  task.watchers = [...watchers];
+  task.assignedBy = user._id;
+  task.delegationChain.push({ from: user._id, to: targetIds, note: note || '', at: new Date() });
+
+  await task.save();
+  const populated = await Task.findById(task._id).populate(LIST_POPULATE);
+  return { task: populated, targets, prevAssignees };
 }
 
 /** Change status (and Kanban position). Handles completion + recurrence. */
@@ -160,7 +252,8 @@ export async function moveTask(id, { status, order }, user) {
   if (order !== undefined) task.order = order;
 
   let spawned = null;
-  if (task.status === 'done' && !wasDone) {
+  const completedNow = task.status === 'done' && !wasDone;
+  if (completedNow) {
     task.completedAt = new Date();
     spawned = await maybeSpawnRecurrence(task, user);
   } else if (task.status !== 'done') {
@@ -169,7 +262,7 @@ export async function moveTask(id, { status, order }, user) {
 
   await task.save();
   const populated = await Task.findById(task._id).populate(LIST_POPULATE);
-  return { task: populated, spawned };
+  return { task: populated, spawned, completedNow };
 }
 
 /** If the task recurs, create the next occurrence. Returns it (or null). */

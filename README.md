@@ -52,7 +52,7 @@ MONGODB_URI=<your MongoDB / Atlas connection string>
 JWT_ACCESS_SECRET=<random secret>
 JWT_REFRESH_SECRET=<random secret>
 SEED_ADMIN_EMAIL=admin@itsybizzz.local
-SEED_ADMIN_PASSWORD=Admin@12345
+SEED_ADMIN_PASSWORD=<choose a strong password>   # production refuses to start with the default
 STORAGE_PROVIDER=local
 AI_PROVIDER=claude            # claude | openai | mock
 ANTHROPIC_API_KEY=<your key>  # required when AI_PROVIDER=claude
@@ -78,7 +78,7 @@ npm run dev                       # server (:5000) + client (:5173)
 
 - API base: `http://localhost:5000/api/v1`
 - API docs (Swagger): `http://localhost:5000/api/docs`
-- Default admin: `admin@itsybizzz.local` / `Admin@12345` (change in `server/.env`)
+- Default admin: `admin@itsybizzz.local` — password is whatever you set in `SEED_ADMIN_PASSWORD` (dev seed uses `Admin@12345`; production refuses to boot with that default)
 
 ### Production infra
 
