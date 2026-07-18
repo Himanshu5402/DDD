@@ -39,7 +39,7 @@ export const NAV_SECTIONS = [
   {
     heading: 'Business',
     items: [
-      { label: 'Projects (PEPSI)', to: '/projects', icon: WorkOutlineIcon, module: 'rrrmas', action: 'read', ready: true },
+      { label: 'Running Projects', to: '/projects', icon: WorkOutlineIcon, module: 'rrrmas', action: 'read', ready: true },
       { label: 'RRRMAS', to: '/rrrmas', icon: GroupsIcon, module: 'rrrmas', action: 'read', ready: true },
       { label: 'Products', to: '/products', icon: Inventory2Icon, module: 'products', action: 'read', ready: true },
       { label: 'Finance', to: '/finance', icon: PaymentsIcon, module: 'finance', action: 'read', ready: true },
