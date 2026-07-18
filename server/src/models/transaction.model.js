@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 const { Schema } = mongoose;
 
 export const TRANSACTION_TYPES = Object.freeze(['income', 'expense']);
-export const PAYMENT_METHODS = Object.freeze(['cash', 'bank', 'upi', 'card', 'cheque', 'other']);
+export const PAYMENT_METHODS = Object.freeze(['cash', 'bank', 'upi', 'card', 'cheque', 'invoice', 'other']);
 // Models a transaction can be loosely linked to ('' = no link).
 export const LINKABLE_MODELS = Object.freeze(['', 'Contact', 'Project', 'Renewal', 'Asset', 'Product']);
 
@@ -37,6 +37,16 @@ const transactionSchema = new Schema(
 
     description: { type: String, default: '' },
     paymentMethod: { type: String, enum: PAYMENT_METHODS, default: 'bank' },
+
+    // Reference / id for the payment: UPI id, bank UTR/IMPS ref, card auth ref,
+    // cheque number, etc. Not applicable to cash — the form hides this field and
+    // the service clears it whenever the method is 'cash'.
+    paymentRef: { type: String, trim: true, default: '' },
+
+    // Free-text label for a custom method — only meaningful when paymentMethod
+    // is 'other' (e.g. "Razorpay link", "barter", "adjustment"). The service
+    // clears it whenever the method is not 'other'.
+    paymentMethodOther: { type: String, trim: true, default: '' },
 
     // Counterparty: free-text name, optionally linked to a CRM contact.
     party: { type: partySchema, default: () => ({}) },

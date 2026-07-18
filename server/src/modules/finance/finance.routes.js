@@ -43,6 +43,14 @@ transactionsRouter.post(
   transactionsC.create
 );
 
+// Reusable custom payment-method labels. MUST be declared before '/:id' so the
+// literal path isn't captured as an id.
+transactionsRouter.get(
+  '/custom-methods',
+  authorize(M, ACTIONS.READ),
+  transactionsC.customMethods
+);
+
 transactionsRouter.get(
   '/:id',
   authorize(M, ACTIONS.READ),

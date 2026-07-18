@@ -18,7 +18,7 @@ function buildFilter(query = {}) {
   if (query.customer) filter.customer = query.customer;
   if (query.search) {
     const rx = new RegExp(escapeRegex(query.search), 'i');
-    filter.$or = [{ title: rx }, { notes: rx }];
+    filter.$or = [{ title: rx }, { notes: rx }, { leadId: rx }];
   }
   return filter;
 }
@@ -50,7 +50,7 @@ export async function createRenewal(data, user) {
 
 const UPDATABLE = [
   'title', 'customer', 'product', 'amount', 'currency',
-  'dueDate', 'status', 'autoRenew', 'notes',
+  'dueDate', 'status', 'autoRenew', 'notes', 'color',
 ];
 
 export async function updateRenewal(id, data) {

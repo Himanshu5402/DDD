@@ -3,7 +3,24 @@ import mongoose from 'mongoose';
 const { Schema } = mongoose;
 
 export const REPORT_MOODS = Object.freeze(['great', 'good', 'okay', 'stressed', 'blocked']);
-export const REPORT_STATUSES = Object.freeze(['submitted', 'reviewed']);
+
+/**
+ * Approval state machine (mirrors the org chart):
+ *   submitted ──(manager approve)──▶ manager_approved ──(admin approve)──▶ admin_approved ✓
+ *      │                                    │
+ *      └──(manager reject)──▶ manager_rejected   └──(admin reject)──▶ admin_rejected
+ * A rejected report can be edited and re-submitted, which resets it to `submitted`.
+ * Employees with no manager go straight to admin review from `submitted`.
+ */
+export const REPORT_STATUSES = Object.freeze([
+  'submitted',
+  'manager_approved',
+  'manager_rejected',
+  'admin_approved',
+  'admin_rejected',
+]);
+
+export const ATTACHMENT_TYPES = Object.freeze(['image', 'video']);
 
 const meetingSchema = new Schema(
   {
@@ -11,6 +28,30 @@ const meetingSchema = new Schema(
     durationMinutes: { type: Number, default: 30 },
   },
   { _id: true }
+);
+
+// A photo/video attached to a report (stored via the storage provider).
+const attachmentSchema = new Schema(
+  {
+    url: { type: String, required: true },
+    key: { type: String, default: '' }, // provider key, for deletion
+    type: { type: String, enum: ATTACHMENT_TYPES, required: true },
+    name: { type: String, default: '' },
+    size: { type: Number, default: 0 },
+    mimeType: { type: String, default: '' },
+  },
+  { _id: true }
+);
+
+// One approval decision (manager level or admin level).
+const reviewSchema = new Schema(
+  {
+    reviewer: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    decision: { type: String, enum: ['approved', 'rejected'], required: true },
+    reason: { type: String, default: '', trim: true }, // required by service on reject
+    at: { type: Date, default: Date.now },
+  },
+  { _id: false }
 );
 
 const gitCommitSchema = new Schema(
@@ -44,9 +85,13 @@ const dailyReportSchema = new Schema(
     remarks: { type: String, default: '' },
     mood: { type: String, enum: REPORT_MOODS, default: 'good' },
 
+    attachments: [attachmentSchema],
+
     status: { type: String, enum: REPORT_STATUSES, default: 'submitted', index: true },
-    reviewedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
-    reviewedAt: { type: Date },
+
+    // Two-level review chain. Each holds the latest decision at that level.
+    managerReview: { type: reviewSchema, default: null },
+    adminReview: { type: reviewSchema, default: null },
 
     aiSummary: { type: String, default: '' },
   },

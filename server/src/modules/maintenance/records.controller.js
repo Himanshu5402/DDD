@@ -35,3 +35,9 @@ export const upcoming = asyncHandler(async (req, res) => {
   const data = await service.getUpcoming(req.query);
   return ApiResponse.ok(res, data, 'Upcoming maintenance');
 });
+
+/** Admin-triggered maintenance reminder sweep (also runs on a schedule). */
+export const runReminders = asyncHandler(async (req, res) => {
+  const result = await service.runMaintenanceReminderSweep();
+  return ApiResponse.ok(res, result, `Checked ${result.checked} job(s), sent ${result.notified} reminder(s)`);
+});

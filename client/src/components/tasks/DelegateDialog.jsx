@@ -27,9 +27,9 @@ export default function DelegateDialog({ task, open, onClose, onDelegated }) {
   const canSeeAllUsers = hasPermission('users', 'read');
 
   const teamQuery = useQuery({
-    queryKey: ['my-team'],
+    queryKey: ['my-team', user?._id],
     queryFn: usersApi.myTeam,
-    enabled: open,
+    enabled: open && Boolean(user?._id),
   });
 
   const allUsersQuery = useQuery({

@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { ASSET_STATUSES } from '../../models/asset.model.js';
 import { MAINTENANCE_TYPES, MAINTENANCE_STATUSES } from '../../models/maintenanceRecord.model.js';
+import {
+  EXPIRY_CATEGORIES,
+  EXPIRY_RECURRENCES,
+  EXPIRY_STATUSES,
+} from '../../models/expiryItem.model.js';
 
 const objectId = z.string().regex(/^[a-f\d]{24}$/i, 'Invalid id');
 
@@ -75,20 +80,31 @@ const partUsedSchema = z.object({
   cost: z.number().min(0).optional(),
 });
 
-export const createRecordSchema = z.object({
-  asset: objectId,
-  type: z.enum(MAINTENANCE_TYPES),
-  status: z.enum(MAINTENANCE_STATUSES).optional(),
-  scheduledFor: z.coerce.date(),
-  completedAt: z.coerce.date().optional(),
-  technician: z.string().trim().max(200).optional(),
-  performedBy: objectId.nullable().optional(),
-  cost: z.number().min(0).optional(),
-  notes: z.string().max(5000).optional(),
-  partsUsed: z.array(partUsedSchema).optional(),
-});
+export const createRecordSchema = z
+  .object({
+    title: z.string().trim().max(200).optional(),
+    asset: objectId.optional(),
+    type: z.enum(MAINTENANCE_TYPES),
+    status: z.enum(MAINTENANCE_STATUSES).optional(),
+    scheduledFor: z.coerce.date(),
+    completedAt: z.coerce.date().optional(),
+    technician: z.string().trim().max(200).optional(),
+    performedBy: objectId.nullable().optional(),
+    cost: z.number().min(0).optional(),
+    reminderDaysBefore: z.coerce.number().int().min(0).max(90).optional(),
+    notes: z.string().max(5000).optional(),
+    partsUsed: z.array(partUsedSchema).optional(),
+  })
+  // Every record must identify what is being maintained — a free-text title
+  // and/or a linked asset.
+  .refine((d) => (d.title && d.title.trim()) || d.asset, {
+    message: 'Provide a title or select an asset',
+    path: ['title'],
+  });
 
 export const updateRecordSchema = z.object({
+  title: z.string().trim().max(200).optional(),
+  asset: objectId.nullable().optional(),
   type: z.enum(MAINTENANCE_TYPES).optional(),
   status: z.enum(MAINTENANCE_STATUSES).optional(),
   scheduledFor: z.coerce.date().optional(),
@@ -96,8 +112,50 @@ export const updateRecordSchema = z.object({
   technician: z.string().trim().max(200).optional(),
   performedBy: objectId.nullable().optional(),
   cost: z.number().min(0).optional(),
+  reminderDaysBefore: z.coerce.number().int().min(0).max(90).optional(),
   notes: z.string().max(5000).optional(),
   partsUsed: z.array(partUsedSchema).optional(),
+});
+
+// --- Bills & renewals (expiry items) ------------------------------------------
+
+export const listExpiriesSchema = z.object({
+  page: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().positive().max(100).optional(),
+  sort: z.string().optional(),
+  search: z.string().optional(),
+  status: z.enum(EXPIRY_STATUSES).optional(),
+  category: z.enum(EXPIRY_CATEGORIES).optional(),
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+});
+
+export const createExpirySchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  category: z.enum(EXPIRY_CATEGORIES).optional(),
+  provider: z.string().trim().max(200).optional(),
+  accountRef: z.string().trim().max(200).optional(),
+  amount: z.coerce.number().min(0).optional(),
+  dueDate: z.coerce.date(),
+  recurrence: z.enum(EXPIRY_RECURRENCES).optional(),
+  status: z.enum(EXPIRY_STATUSES).optional(),
+  reminderDaysBefore: z.coerce.number().int().min(0).max(90).optional(),
+  owner: objectId.nullable().optional(),
+  notes: z.string().max(5000).optional(),
+});
+
+export const updateExpirySchema = z.object({
+  name: z.string().trim().min(1).max(200).optional(),
+  category: z.enum(EXPIRY_CATEGORIES).optional(),
+  provider: z.string().trim().max(200).optional(),
+  accountRef: z.string().trim().max(200).optional(),
+  amount: z.coerce.number().min(0).optional(),
+  dueDate: z.coerce.date().optional(),
+  recurrence: z.enum(EXPIRY_RECURRENCES).optional(),
+  status: z.enum(EXPIRY_STATUSES).optional(),
+  reminderDaysBefore: z.coerce.number().int().min(0).max(90).optional(),
+  owner: objectId.nullable().optional(),
+  notes: z.string().max(5000).optional(),
 });
 
 // --- Upcoming ------------------------------------------------------------------

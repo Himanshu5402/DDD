@@ -67,6 +67,11 @@ const schema = z.object({
   PEPSI_PROJECTS_PATH: z.string().default('/projects'), // expected endpoint (flip-ready)
   PEPSI_SYNC_ENABLED: bool(false), // when true, the scheduled background sync runs
   PEPSI_SYNC_INTERVAL_MS: z.coerce.number().default(30 * 60 * 1000), // 30 min
+
+  // ----- Bills & renewals expiry reminders -----
+  // Sweeps active expiry items and notifies admins as due dates approach.
+  EXPIRY_REMINDERS_ENABLED: bool(true),
+  EXPIRY_REMINDER_INTERVAL_MS: z.coerce.number().default(6 * 60 * 60 * 1000), // 6h
 });
 
 const parsed = schema.safeParse(process.env);

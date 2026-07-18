@@ -7,6 +7,11 @@ export const NOTIFICATION_TYPES = Object.freeze([
   'task_delegated', // your manager delegated a task to you
   'task_completed', // a task you assigned/delegated/created was completed
   'task_commented', // someone commented on a task you participate in
+  'report_submitted', // a report was submitted for your review
+  'report_approved', // your report (or one you reviewed) was approved
+  'report_rejected', // your report (or one you approved) was returned with a reason
+  'expiry_due', // a bill/renewal is expiring soon (or overdue)
+  'maintenance_due', // scheduled maintenance is due soon (or overdue)
   'generic',
 ]);
 

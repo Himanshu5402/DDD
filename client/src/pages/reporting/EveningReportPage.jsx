@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Box,
@@ -34,6 +34,9 @@ import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import SmartToyIcon from "@mui/icons-material/SmartToy";
 import SendIcon from "@mui/icons-material/Send";
 import CheckCircleIcon from "@mui/icons-material/CheckCircleOutline";
+import CancelIcon from "@mui/icons-material/CancelOutlined";
+import PhotoLibraryIcon from "@mui/icons-material/PhotoLibrary";
+import CloseIcon from "@mui/icons-material/Close";
 import PageHeader from "../../components/ui/PageHeader.jsx";
 import {
   reportingApi,
@@ -42,10 +45,17 @@ import {
   REPORT_MOOD_COLOR,
   REPORT_STATUS_LABELS,
   REPORT_STATUS_COLOR,
+  EMPLOYEE_STATUS_LABELS,
+  EMPLOYEE_STATUS_COLOR,
 } from "../../api/reporting.api.js";
+import { usersApi } from "../../api/users.api.js";
 import api, { getErrorMessage } from "../../lib/axios.js";
 import { getSocket, connectSocket } from "../../lib/socket.js";
 import { useAuth } from "../../auth/AuthContext.jsx";
+
+// Absolute URL for a stored attachment (backend serves /uploads same-origin).
+const API_ORIGIN = (api.defaults.baseURL || "").replace(/\/api\/v1\/?$/, "");
+const mediaUrl = (u) => (u && u.startsWith("/") ? `${API_ORIGIN}${u}` : u);
 
 const formatDate = (iso) => {
   if (!iso) return "";
@@ -69,10 +79,37 @@ const toApiDate = (yyyyMmDd) => new Date(`${yyyyMmDd}T12:00:00`).toISOString();
 
 export default function EveningReportPage() {
   const qc = useQueryClient();
-  const { hasPermission } = useAuth();
-  const canSeeTeam = hasPermission("employee_analytics", "read");
+  const { user, isSuperAdmin } = useAuth();
 
-  const [tab, setTab] = useState(0);
+  // "Admin" (super admin or the admin role) oversees reporting rather than
+  // filing a daily report: they get report history + team reports, and no
+  // personal "My Report" form. Every other role files their own report and
+  // sees their own history (no team view).
+  const isAdmin =
+    isSuperAdmin || (user?.roles || []).some((r) => (r?.slug || r) === "admin");
+
+  // A manager is anyone with direct reports (org chart) who isn't an admin.
+  // Managers file their own report AND review their team's; admins only review.
+  // Key is scoped to the user id so a previous account's team can never leak in.
+  const { data: myTeam = [] } = useQuery({
+    queryKey: ["my-team", user?._id],
+    queryFn: usersApi.myTeam,
+    enabled: !isAdmin && Boolean(user?._id),
+  });
+  const isManager = !isAdmin && myTeam.length > 0;
+  const canReview = isAdmin || isManager; // whoever sees the review tab
+
+  // String tab keys so conditionally-rendered tabs never shift indices.
+  const [tab, setTab] = useState(isAdmin ? "team" : "myReport");
+
+  // Keep the active tab valid for the current role (resolves after my-team loads).
+  useEffect(() => {
+    setTab((t) => {
+      if (isAdmin && t === "myReport") return "team";
+      if (!canReview && t === "team") return "myReport";
+      return t;
+    });
+  }, [isAdmin, canReview]);
 
   // Live updates: refetch whenever any client changes a report.
   useEffect(() => {
@@ -88,7 +125,13 @@ export default function EveningReportPage() {
     <Box>
       <PageHeader
         title="Evening Reporting"
-        subtitle="Submit your end-of-day report and keep the team in the loop."
+        subtitle={
+          isAdmin
+            ? "Review report history and give final acceptance on team reports."
+            : isManager
+              ? "Submit your report, and review & accept your team's reports."
+              : "Submit your end-of-day report and keep the team in the loop."
+        }
       />
 
       <Tabs
@@ -96,14 +139,16 @@ export default function EveningReportPage() {
         onChange={(e, v) => setTab(v)}
         sx={{ mb: 3, borderBottom: 1, borderColor: "divider" }}
       >
-        <Tab label="My Report" />
-        <Tab label="My History" />
-        {canSeeTeam && <Tab label="Team" />}
+        {!isAdmin && <Tab label="My Report" value="myReport" />}
+        <Tab label={isAdmin ? "History Reports" : "My History"} value="history" />
+        {canReview && (
+          <Tab label={isAdmin ? "Teams Reports" : "Team Reports"} value="team" />
+        )}
       </Tabs>
 
-      {tab === 0 && <MyReportTab />}
-      {tab === 1 && <MyHistoryTab />}
-      {tab === 2 && canSeeTeam && <TeamTab />}
+      {tab === "myReport" && !isAdmin && <MyReportTab />}
+      {tab === "history" && <MyHistoryTab isAdmin={isAdmin} />}
+      {tab === "team" && canReview && <ReviewTab isAdmin={isAdmin} />}
     </Box>
   );
 }
@@ -124,6 +169,10 @@ function MyReportTab() {
   const [form, setForm] = useState(emptyForm);
   const [meetings, setMeetings] = useState([]);
   const [gitCommits, setGitCommits] = useState([]);
+  const [attachments, setAttachments] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const fileInputRef = useRef(null);
   const [prefilled, setPrefilled] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
@@ -158,8 +207,31 @@ function MyReportTab() {
         hash: c.hash || "",
       })),
     );
+    setAttachments(latest.attachments || []);
     setPrefilled(true);
   }, [latestQuery.data, prefilled]);
+
+  const onPickFiles = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = ""; // allow re-selecting the same file
+    if (!files.length) return;
+    setUploadError("");
+    setUploading(true);
+    setSubmitted(false);
+    try {
+      const uploaded = await reportingApi.upload(files);
+      setAttachments((prev) => [...prev, ...uploaded]);
+    } catch (err) {
+      setUploadError(getErrorMessage(err, "Upload failed"));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removeAttachment = (idx) => {
+    setSubmitted(false);
+    setAttachments((prev) => prev.filter((_, i) => i !== idx));
+  };
 
   const submitM = useMutation({
     mutationFn: (payload) => reportingApi.submit(payload),
@@ -211,6 +283,14 @@ function MyReportTab() {
           message: c.message.trim(),
           hash: c.hash.trim(),
         })),
+      attachments: attachments.map((a) => ({
+        url: a.url,
+        key: a.key,
+        type: a.type,
+        name: a.name,
+        size: a.size,
+        mimeType: a.mimeType,
+      })),
     });
   };
 
@@ -221,10 +301,45 @@ function MyReportTab() {
       onSubmit={onSubmit}
       sx={{ p: 3, border: "1px solid", borderColor: "divider" }}
     >
-      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-        Report for {formatDate(new Date().toISOString())}
-      </Typography>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+          Report for {formatDate(new Date().toISOString())}
+        </Typography>
+        {(() => {
+          const latest = latestQuery.data?.data?.[0];
+          const today = latest && isToday(latest.date) ? latest : null;
+          if (!today) return null;
+          return (
+            <Chip
+              size="small"
+              label={EMPLOYEE_STATUS_LABELS[today.status] || today.status}
+              color={EMPLOYEE_STATUS_COLOR[today.status] || "default"}
+            />
+          );
+        })()}
+      </Box>
 
+      {(() => {
+        const latest = latestQuery.data?.data?.[0];
+        const today = latest && isToday(latest.date) ? latest : null;
+        if (!today) return null;
+        const rej =
+          today.status === "admin_rejected"
+            ? today.adminReview
+            : today.status === "manager_rejected"
+              ? today.managerReview
+              : null;
+        if (!rej) return null;
+        return (
+          <Alert severity="warning" sx={{ mt: 1.5 }}>
+            <b>
+              {today.status === "admin_rejected" ? "Admin" : "Your manager"}{" "}
+              returned this report
+            </b>
+            {rej.reason ? `: ${rej.reason}` : "."} Fix it and re-submit.
+          </Alert>
+        );
+      })()}
       {prefilled && (
         <Alert severity="info" sx={{ mt: 1.5 }}>
           You already submitted a report today — submitting again will update
@@ -410,6 +525,57 @@ function MyReportTab() {
         Add commit
       </Button>
 
+      <Divider sx={{ my: 3 }} />
+
+      {/* Attachments: photos & videos */}
+      <Typography variant="subtitle2" sx={{ mb: 1 }}>
+        Photos & videos
+      </Typography>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,video/*"
+        multiple
+        hidden
+        onChange={onPickFiles}
+      />
+      {uploadError && (
+        <Alert severity="error" sx={{ mb: 1.5 }}>
+          {uploadError}
+        </Alert>
+      )}
+      {attachments.length > 0 && (
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))",
+            gap: 1.5,
+            mb: 1.5,
+          }}
+        >
+          {attachments.map((a, i) => (
+            <AttachmentThumb key={a.url || i} att={a} onRemove={() => removeAttachment(i)} />
+          ))}
+        </Box>
+      )}
+      <Button
+        size="small"
+        startIcon={
+          uploading ? <CircularProgress size={14} /> : <PhotoLibraryIcon />
+        }
+        onClick={() => fileInputRef.current?.click()}
+        disabled={uploading}
+      >
+        {uploading ? "Uploading…" : "Add photo / video"}
+      </Button>
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        sx={{ display: "block", mt: 0.5 }}
+      >
+        Images and videos up to 25 MB each.
+      </Typography>
+
       <Box sx={{ mt: 3, display: "flex", justifyContent: "flex-end" }}>
         <Button
           type="submit"
@@ -421,7 +587,7 @@ function MyReportTab() {
               <SendIcon />
             )
           }
-          disabled={submitM.isPending || !form.workDone.trim()}
+          disabled={submitM.isPending || uploading || !form.workDone.trim()}
         >
           {prefilled ? "Update report" : "Submit report"}
         </Button>
@@ -430,9 +596,59 @@ function MyReportTab() {
   );
 }
 
+/** Image/video thumbnail with an optional remove button. */
+function AttachmentThumb({ att, onRemove, readOnly = false }) {
+  const src = mediaUrl(att.url);
+  return (
+    <Box
+      sx={{
+        position: "relative",
+        borderRadius: 2,
+        overflow: "hidden",
+        border: "1px solid",
+        borderColor: "divider",
+        aspectRatio: "1 / 1",
+        bgcolor: "#0b0b0b",
+      }}
+    >
+      {att.type === "video" ? (
+        <video
+          src={src}
+          controls
+          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+        />
+      ) : (
+        <a href={src} target="_blank" rel="noreferrer">
+          <img
+            src={src}
+            alt={att.name || "attachment"}
+            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+          />
+        </a>
+      )}
+      {!readOnly && onRemove && (
+        <IconButton
+          size="small"
+          onClick={onRemove}
+          sx={{
+            position: "absolute",
+            top: 2,
+            right: 2,
+            bgcolor: "rgba(0,0,0,0.55)",
+            color: "#fff",
+            "&:hover": { bgcolor: "rgba(0,0,0,0.78)" },
+          }}
+        >
+          <CloseIcon sx={{ fontSize: 15 }} />
+        </IconButton>
+      )}
+    </Box>
+  );
+}
+
 /* ------------------------------- My History ------------------------------ */
 
-function MyHistoryTab() {
+function MyHistoryTab({ isAdmin = false }) {
   const [page, setPage] = useState(1);
   const [detailId, setDetailId] = useState(null);
   const limit = 10;
@@ -465,7 +681,9 @@ function MyHistoryTab() {
       {items.length === 0 ? (
         <Box sx={{ textAlign: "center", py: 8, color: "text.secondary" }}>
           <Typography>
-            No reports yet — submit your first one from the My Report tab.
+            {isAdmin
+              ? "No report history yet — reports appear here once your team starts submitting."
+              : "No reports yet — submit your first one from the My Report tab."}
           </Typography>
         </Box>
       ) : (
@@ -509,8 +727,8 @@ function MyHistoryTab() {
                     <TableCell>
                       <Chip
                         size="small"
-                        label={REPORT_STATUS_LABELS[r.status] || r.status}
-                        color={REPORT_STATUS_COLOR[r.status] || "default"}
+                        label={EMPLOYEE_STATUS_LABELS[r.status] || r.status}
+                        color={EMPLOYEE_STATUS_COLOR[r.status] || "default"}
                       />
                     </TableCell>
                     <TableCell sx={{ maxWidth: 340 }}>
@@ -611,8 +829,8 @@ function ReportDetailDialog({ open, reportId, onClose }) {
               />
               <Chip
                 size="small"
-                label={REPORT_STATUS_LABELS[report.status] || report.status}
-                color={REPORT_STATUS_COLOR[report.status] || "default"}
+                label={EMPLOYEE_STATUS_LABELS[report.status] || report.status}
+                color={EMPLOYEE_STATUS_COLOR[report.status] || "default"}
               />
             </Stack>
 
@@ -696,17 +914,30 @@ function ReportDetailDialog({ open, reportId, onClose }) {
 
             <DetailSection title="Remarks" text={report.remarks} />
 
-            {report.reviewedBy && (
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ display: "block", mb: 2 }}
-              >
-                Reviewed by {report.reviewedBy?.name || "manager"}
-                {report.reviewedAt
-                  ? ` on ${formatDate(report.reviewedAt)}`
-                  : ""}
-              </Typography>
+            {(report.attachments || []).length > 0 && (
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="subtitle2" sx={{ mb: 0.75 }}>
+                  Photos & videos
+                </Typography>
+                <Box
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(96px, 1fr))",
+                    gap: 1,
+                  }}
+                >
+                  {report.attachments.map((a, i) => (
+                    <AttachmentThumb key={a.url || i} att={a} readOnly />
+                  ))}
+                </Box>
+              </Box>
+            )}
+
+            {(report.managerReview || report.adminReview) && (
+              <Box sx={{ mb: 2 }}>
+                <ReviewLine label="Manager" review={report.managerReview} />
+                <ReviewLine label="Admin" review={report.adminReview} />
+              </Box>
             )}
 
             <Divider sx={{ my: 2 }} />
@@ -794,7 +1025,13 @@ const MOOD_SOFT = {
   stressed: SOFT.warning,
   blocked: SOFT.error,
 };
-const STATUS_SOFT = { submitted: SOFT.neutral, reviewed: SOFT.success };
+const STATUS_SOFT = {
+  submitted: SOFT.warning,
+  manager_approved: SOFT.indigo,
+  manager_rejected: SOFT.error,
+  admin_approved: SOFT.success,
+  admin_rejected: SOFT.error,
+};
 
 const initialsOf = (name = "") =>
   name
@@ -815,10 +1052,18 @@ const formatTime = (iso) => {
   }
 };
 
-function TeamTab() {
+/** Can the current reviewer (by scope) act on a report in this status? */
+function isActionable(status, scope) {
+  if (scope === "admin") return status === "submitted" || status === "manager_approved";
+  // A manager reviews new submissions, and relays admin bounce-backs to the employee.
+  if (scope === "manager") return status === "submitted" || status === "admin_rejected";
+  return false;
+}
+
+function ReviewTab({ isAdmin }) {
   const qc = useQueryClient();
-  const { hasPermission } = useAuth();
-  const canReview = hasPermission("evening_reporting", "update");
+  const { user } = useAuth();
+  const uid = user?._id;
 
   const [date, setDate] = useState(() => {
     const d = new Date();
@@ -827,30 +1072,22 @@ function TeamTab() {
   });
   const [companyFilter, setCompanyFilter] = useState("");
   const [digestResult, setDigestResult] = useState(null);
+  const [rejectTarget, setRejectTarget] = useState(null);
 
   const query = useQuery({
-    queryKey: ["reports", "team", date],
+    queryKey: ["reports", "team", uid, date],
     queryFn: () => reportingApi.team({ date: toApiDate(date) }),
-    enabled: Boolean(date),
+    enabled: Boolean(date && uid),
   });
+  const scope = query.data?.scope || (isAdmin ? "admin" : "manager");
 
-  // The owner's companies — used as filter chips and for card accents.
+  // The owner's companies — filter chips + card accents. Fails soft.
   const { data: companies = [] } = useQuery({
     queryKey: ["companies"],
     queryFn: async () => {
-      const res = await api.get("/companies");
-      return res.data.data.companies;
-    },
-    staleTime: 5 * 60_000,
-  });
-
-  // Directory of users — powers the "not submitted yet" list. Fails soft.
-  const usersQuery = useQuery({
-    queryKey: ["users", "directory"],
-    queryFn: async () => {
       try {
-        const res = await api.get("/users", { params: { limit: 100 } });
-        return res.data.data || [];
+        const res = await api.get("/companies");
+        return res.data.data.companies;
       } catch {
         return [];
       }
@@ -858,9 +1095,34 @@ function TeamTab() {
     staleTime: 5 * 60_000,
   });
 
-  const reviewM = useMutation({
-    mutationFn: (id) => reportingApi.review(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["reports", "team"] }),
+  // Who to expect: admins see everyone, managers see their direct reports.
+  const usersQuery = useQuery({
+    queryKey: ["reports", "expected", uid, isAdmin],
+    queryFn: async () => {
+      try {
+        if (isAdmin) {
+          const res = await api.get("/users", { params: { limit: 100 } });
+          return res.data.data || [];
+        }
+        return await usersApi.myTeam();
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 5 * 60_000,
+  });
+
+  const invalidate = () => qc.invalidateQueries({ queryKey: ["reports"] });
+  const approveM = useMutation({
+    mutationFn: (id) => reportingApi.approve(id),
+    onSuccess: invalidate,
+  });
+  const rejectM = useMutation({
+    mutationFn: ({ id, reason }) => reportingApi.reject(id, reason),
+    onSuccess: () => {
+      setRejectTarget(null);
+      invalidate();
+    },
   });
 
   const digestM = useMutation({
@@ -872,14 +1134,14 @@ function TeamTab() {
   const filteredReports = companyFilter
     ? reports.filter((r) => r.user?.company?._id === companyFilter)
     : reports;
+  const pendingCount = reports.filter((r) => isActionable(r.status, scope)).length;
 
-  // Who hasn't submitted: active, non-super-admin users with no report for the day.
+  // Who hasn't submitted: expected people with no report for the day.
   const allUsers = usersQuery.data || [];
   const reportedIds = new Set(reports.map((r) => r.user?._id).filter(Boolean));
   const notSubmitted = allUsers.filter((u) => {
     if (u.isActive === false) return false;
-    if ((u.roles || []).some((role) => role?.isSuperAdmin === true))
-      return false;
+    if ((u.roles || []).some((role) => role?.isSuperAdmin === true)) return false;
     if (reportedIds.has(u._id)) return false;
     if (companyFilter && u.company?._id !== companyFilter) return false;
     return true;
@@ -895,8 +1157,6 @@ function TeamTab() {
   const blockedCount = filteredReports.filter((r) =>
     (r.blockers || "").trim(),
   ).length;
-  const expectedCount =
-    filteredReports.length + (allUsers.length > 0 ? notSubmitted.length : 0);
 
   return (
     <Box>
@@ -1032,14 +1292,27 @@ function TeamTab() {
       {!query.isLoading && !query.error && (
         <>
           {/* Summary strip */}
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ display: "block", mb: 2.5 }}
+          <Box
+            sx={{ display: "flex", gap: 1, alignItems: "center", mb: 2.5, flexWrap: "wrap" }}
           >
-            {filteredReports.length} of {expectedCount} reported · {totalHours}h
-            logged · {blockedCount} blocked
-          </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {filteredReports.length} reported · {totalHours}h logged ·{" "}
+              {blockedCount} blocked
+            </Typography>
+            {pendingCount > 0 && (
+              <Chip
+                size="small"
+                label={`${pendingCount} pending your review`}
+                sx={{ ...SOFT.warning, fontWeight: 700, height: 22 }}
+              />
+            )}
+          </Box>
+
+          {(approveM.isError || rejectM.isError) && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {getErrorMessage(approveM.error || rejectM.error, "Action failed")}
+            </Alert>
+          )}
 
           {filteredReports.length === 0 ? (
             <Box sx={{ textAlign: "center", py: 8, color: "text.secondary" }}>
@@ -1051,11 +1324,13 @@ function TeamTab() {
           ) : (
             <Masonry columns={{ xs: 1, md: 2 }} spacing={2.5} sx={{ m: 0 }}>
               {filteredReports.map((r) => (
-                <TeamReportCard
+                <ReviewReportCard
                   key={r._id}
                   report={r}
-                  canReview={canReview}
-                  reviewM={reviewM}
+                  scope={scope}
+                  onApprove={() => approveM.mutate(r._id)}
+                  onReject={() => setRejectTarget(r)}
+                  busy={approveM.isPending || rejectM.isPending}
                 />
               ))}
             </Masonry>
@@ -1116,17 +1391,78 @@ function TeamTab() {
           )}
         </>
       )}
+
+      <RejectDialog
+        report={rejectTarget}
+        open={Boolean(rejectTarget)}
+        submitting={rejectM.isPending}
+        onClose={() => setRejectTarget(null)}
+        onSubmit={(reason) => rejectM.mutate({ id: rejectTarget._id, reason })}
+      />
     </Box>
   );
 }
 
-function TeamReportCard({ report: r, canReview, reviewM }) {
+/** Reason-required rejection dialog. */
+function RejectDialog({ report, open, onClose, onSubmit, submitting }) {
+  const [reason, setReason] = useState("");
+  // Relaying an admin bounce-back? Pre-fill the admin's reason so the manager
+  // can pass it on (and add what the employee should fix).
+  const relaying =
+    report?.status === "admin_rejected" && report?.adminReview?.reason;
+  useEffect(() => {
+    if (open) setReason(relaying ? report.adminReview.reason : "");
+  }, [open, relaying, report]);
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogTitle>Return report to {report?.user?.name || "employee"}</DialogTitle>
+      <DialogContent>
+        {relaying && (
+          <Alert severity="info" sx={{ mb: 1.5 }}>
+            Admin returned this report. Tell {report?.user?.name || "the employee"} what
+            to fix — the admin's reason is pre-filled below.
+          </Alert>
+        )}
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+          Explain what needs fixing — this goes to them as a notification.
+        </Typography>
+        <TextField
+          autoFocus
+          fullWidth
+          multiline
+          minRows={3}
+          label="Reason"
+          placeholder="e.g. Please add the client name and hours for the QA task."
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+        />
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button
+          variant="contained"
+          color="error"
+          startIcon={submitting ? <CircularProgress size={14} color="inherit" /> : <CancelIcon />}
+          disabled={submitting || reason.trim().length < 3}
+          onClick={() => onSubmit(reason.trim())}
+        >
+          Return report
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+function ReviewReportCard({ report: r, scope, onApprove, onReject, busy }) {
   const company = r.user?.company;
   const subtitle = [r.user?.designation, r.user?.department]
     .filter(Boolean)
     .join(" · ");
   const meetingCount = (r.meetings || []).length;
   const commitCount = (r.gitCommits || []).length;
+  const attachments = r.attachments || [];
+  const actionable = isActionable(r.status, scope);
 
   return (
     <Paper
@@ -1302,7 +1638,31 @@ function TeamReportCard({ report: r, canReview, reviewM }) {
         </Box>
       )}
 
-      {/* Footer: review */}
+      {/* Attachments */}
+      {attachments.length > 0 && (
+        <Box
+          sx={{
+            mt: 1.5,
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(96px, 1fr))",
+            gap: 1,
+          }}
+        >
+          {attachments.map((a, i) => (
+            <AttachmentThumb key={a.url || i} att={a} readOnly />
+          ))}
+        </Box>
+      )}
+
+      {/* Review trail: manager decision then admin decision */}
+      {(r.managerReview || r.adminReview) && (
+        <Box sx={{ mt: 1.5 }}>
+          <ReviewLine label="Manager" review={r.managerReview} />
+          <ReviewLine label="Admin" review={r.adminReview} />
+        </Box>
+      )}
+
+      {/* Footer: approve / reject */}
       <Box
         sx={{
           mt: 1.5,
@@ -1312,25 +1672,78 @@ function TeamReportCard({ report: r, canReview, reviewM }) {
           gap: 1,
         }}
       >
-        {r.status === "reviewed" ? (
-          <Typography variant="caption" color="text.secondary">
-            Reviewed{r.reviewedBy?.name ? ` by ${r.reviewedBy.name}` : ""}
-          </Typography>
-        ) : (
-          canReview && (
+        {actionable ? (
+          <>
             <Button
               size="small"
-              variant="outlined"
+              color="error"
+              startIcon={<CancelIcon />}
+              onClick={onReject}
+              disabled={busy}
+            >
+              {scope === "manager" && r.status === "admin_rejected"
+                ? "Return to employee"
+                : "Reject"}
+            </Button>
+            <Button
+              size="small"
+              variant="contained"
               color="success"
               startIcon={<CheckCircleIcon />}
-              onClick={() => reviewM.mutate(r._id)}
-              disabled={reviewM.isPending}
+              onClick={onApprove}
+              disabled={busy}
             >
-              Mark reviewed
+              {scope === "admin" && r.status === "manager_approved"
+                ? "Final accept"
+                : scope === "manager" && r.status === "admin_rejected"
+                  ? "Re-accept"
+                  : "Accept"}
             </Button>
-          )
+          </>
+        ) : (
+          <Typography variant="caption" color="text.secondary">
+            {r.status === "admin_approved"
+              ? "✓ Accepted"
+              : r.status === "manager_approved"
+                ? "Awaiting admin review"
+                : r.status === "manager_rejected"
+                  ? "Returned to employee"
+                  : r.status === "admin_rejected"
+                    ? "Returned to manager"
+                    : ""}
+          </Typography>
         )}
       </Box>
     </Paper>
+  );
+}
+
+/** One line of the review trail — "Manager approved" or "Admin returned: …". */
+function ReviewLine({ label, review }) {
+  if (!review) return null;
+  const rejected = review.decision === "rejected";
+  return (
+    <Box
+      sx={{
+        display: "flex",
+        gap: 0.75,
+        alignItems: "flex-start",
+        mt: 0.5,
+        color: rejected ? SOFT.error.color : SOFT.success.color,
+      }}
+    >
+      {rejected ? (
+        <CancelIcon sx={{ fontSize: 16, mt: 0.1 }} />
+      ) : (
+        <CheckCircleIcon sx={{ fontSize: 16, mt: 0.1 }} />
+      )}
+      <Typography variant="caption" sx={{ lineHeight: 1.4 }}>
+        <b>
+          {label} {rejected ? "returned" : "accepted"}
+        </b>
+        {review.reviewer?.name ? ` · ${review.reviewer.name}` : ""}
+        {rejected && review.reason ? ` — “${review.reason}”` : ""}
+      </Typography>
+    </Box>
   );
 }

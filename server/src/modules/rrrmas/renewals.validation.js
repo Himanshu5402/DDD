@@ -16,6 +16,10 @@ export const listRenewalsSchema = z.object({
 
 export const createRenewalSchema = z.object({
   title: z.string().trim().min(1).max(200),
+  // Lead ID is captured only at creation. It is intentionally absent from the
+  // update schema below, so any leadId sent on a PATCH is stripped by Zod and
+  // can never be changed once the renewal exists.
+  leadId: z.string().trim().max(120).optional(),
   customer: objectId.optional(),
   product: objectId.optional(),
   amount: z.number().min(0).optional(),
@@ -23,6 +27,7 @@ export const createRenewalSchema = z.object({
   dueDate: z.coerce.date().optional(),
   status: z.enum(RENEWAL_STATUSES).optional(),
   autoRenew: z.boolean().optional(),
+  color: z.string().trim().max(20).optional(),
   notes: z.string().max(5000).optional(),
 });
 
@@ -35,5 +40,6 @@ export const updateRenewalSchema = z.object({
   dueDate: z.coerce.date().nullable().optional(),
   status: z.enum(RENEWAL_STATUSES).optional(),
   autoRenew: z.boolean().optional(),
+  color: z.string().trim().max(20).optional(),
   notes: z.string().max(5000).optional(),
 });

@@ -6,6 +6,7 @@ import auditAction from '../../middleware/audit.middleware.js';
 import { MODULES, ACTIONS } from '../../config/constants.js';
 import * as assetsC from './assets.controller.js';
 import * as recordsC from './records.controller.js';
+import * as expiriesC from './expiries.controller.js';
 import {
   idParamSchema,
   listAssetsSchema,
@@ -14,6 +15,9 @@ import {
   listRecordsSchema,
   createRecordSchema,
   updateRecordSchema,
+  listExpiriesSchema,
+  createExpirySchema,
+  updateExpirySchema,
   upcomingSchema,
 } from './maintenance.validation.js';
 
@@ -57,6 +61,9 @@ const recordsRouter = Router();
 
 recordsRouter.get('/', authorize(M, ACTIONS.READ), validate({ query: listRecordsSchema }), recordsC.list);
 
+// Manually fire the maintenance reminder sweep (also runs on a schedule).
+recordsRouter.post('/run-reminders', authorize(M, ACTIONS.UPDATE), recordsC.runReminders);
+
 recordsRouter.post(
   '/',
   authorize(M, ACTIONS.CREATE),
@@ -81,6 +88,48 @@ recordsRouter.delete(
   recordsC.remove
 );
 
+// --- Bills & renewals (expiry items) sub-router --------------------------------
+
+const expiriesRouter = Router();
+
+expiriesRouter.get('/', authorize(M, ACTIONS.READ), validate({ query: listExpiriesSchema }), expiriesC.list);
+
+expiriesRouter.post(
+  '/',
+  authorize(M, ACTIONS.CREATE),
+  validate({ body: createExpirySchema }),
+  auditAction({ action: ACTIONS.CREATE, module: M, entityType: 'ExpiryItem', describe: (req) => `Added bill/renewal "${req.body.name}"` }),
+  expiriesC.create
+);
+
+// Manually fire the reminder sweep (also runs on a schedule).
+expiriesRouter.post('/run-reminders', authorize(M, ACTIONS.UPDATE), expiriesC.runReminders);
+
+expiriesRouter.patch(
+  '/:id',
+  authorize(M, ACTIONS.UPDATE),
+  validate({ params: idParamSchema, body: updateExpirySchema }),
+  auditAction({ action: ACTIONS.UPDATE, module: M, entityType: 'ExpiryItem', entityId: (req) => req.params.id }),
+  expiriesC.update
+);
+
+// Renew: roll the due date forward one period (or mark a one-off paid).
+expiriesRouter.post(
+  '/:id/renew',
+  authorize(M, ACTIONS.UPDATE),
+  validate({ params: idParamSchema }),
+  auditAction({ action: ACTIONS.UPDATE, module: M, entityType: 'ExpiryItem', entityId: (req) => req.params.id, describe: () => 'Renewed bill/renewal' }),
+  expiriesC.renew
+);
+
+expiriesRouter.delete(
+  '/:id',
+  authorize(M, ACTIONS.DELETE),
+  validate({ params: idParamSchema }),
+  auditAction({ action: ACTIONS.DELETE, module: M, entityType: 'ExpiryItem', entityId: (req) => req.params.id }),
+  expiriesC.remove
+);
+
 // --- Module router --------------------------------------------------------------
 
 const router = Router();
@@ -97,5 +146,6 @@ router.get('/upcoming', authorize(M, ACTIONS.READ), validate({ query: upcomingSc
 
 router.use('/assets', assetsRouter);
 router.use('/records', recordsRouter);
+router.use('/expiries', expiriesRouter);
 
 export default router;

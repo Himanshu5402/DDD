@@ -26,6 +26,7 @@ import {
   DialogContent,
   DialogActions,
   Stack,
+  Divider,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import AddIcon from '@mui/icons-material/Add';
@@ -34,6 +35,7 @@ import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import SearchIcon from '@mui/icons-material/Search';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import {
   ResponsiveContainer,
   BarChart,
@@ -338,6 +340,37 @@ function OverviewTab() {
 
 /* ----------------------------- Transactions ----------------------------- */
 
+// Sentinel value for the "＋ Add custom method…" row in the payment-method dropdown.
+const CUSTOM_METHOD = '__custom__';
+// Dropdown items for previously-saved custom methods carry this prefix on their
+// value, e.g. "custom:Razorpay link".
+const CUSTOM_PREFIX = 'custom:';
+
+// Contextual label + placeholder for the Payment ID field, which is shown for
+// every method except cash (cash has no reference id).
+const PAYMENT_REF_LABELS = {
+  bank: 'Payment ID — Bank / UTR ref',
+  upi: 'Payment ID — UPI ID',
+  card: 'Payment ID — Card / auth ref',
+  cheque: 'Payment ID — Cheque no.',
+  invoice: 'Payment ID — Invoice no.',
+  other: 'Payment ID',
+};
+const PAYMENT_REF_PLACEHOLDERS = {
+  bank: 'e.g. UTR / IMPS / NEFT reference no.',
+  upi: 'e.g. name@okhdfcbank or 12-digit UPI ref',
+  card: 'e.g. auth code / last 4 digits',
+  cheque: 'e.g. cheque no. 000123',
+  invoice: 'e.g. INV-2026-0042',
+  other: 'Payment reference / ID',
+};
+
+// Display label for a transaction's method — the custom text wins for 'other'.
+function methodLabel(t) {
+  if (t.paymentMethod === 'other' && t.paymentMethodOther) return t.paymentMethodOther;
+  return PAYMENT_METHOD_LABELS[t.paymentMethod] || t.paymentMethod;
+}
+
 const EMPTY_TRANSACTION_FORM = {
   type: 'expense',
   amount: '',
@@ -345,6 +378,8 @@ const EMPTY_TRANSACTION_FORM = {
   category: '',
   description: '',
   paymentMethod: 'bank',
+  paymentRef: '',
+  paymentMethodOther: '',
   partyName: '',
   tags: '',
 };
@@ -495,7 +530,14 @@ function TransactionsTab() {
                       </Typography>
                     )}
                   </TableCell>
-                  <TableCell>{PAYMENT_METHOD_LABELS[t.paymentMethod] || t.paymentMethod}</TableCell>
+                  <TableCell>
+                    {methodLabel(t)}
+                    {t.paymentRef && (
+                      <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', fontFamily: 'ui-monospace, monospace', maxWidth: 180 }}>
+                        {t.paymentRef}
+                      </Typography>
+                    )}
+                  </TableCell>
                   <TableCell align="right">
                     <Typography
                       variant="body2"
@@ -544,6 +586,14 @@ function TransactionsTab() {
 function TransactionDialog({ open, onClose, onSave, transaction, saving, error }) {
   const [form, setForm] = useState(EMPTY_TRANSACTION_FORM);
 
+  // Previously-saved custom methods, so a method typed once is re-pickable.
+  const customMethodsQuery = useQuery({
+    queryKey: ['finance', 'customMethods'],
+    queryFn: () => financeApi.listCustomMethods(),
+    enabled: open,
+  });
+  const savedCustomMethods = customMethodsQuery.data || [];
+
   useEffect(() => {
     if (!open) return;
     if (transaction) {
@@ -554,6 +604,8 @@ function TransactionDialog({ open, onClose, onSave, transaction, saving, error }
         category: transaction.category || '',
         description: transaction.description || '',
         paymentMethod: transaction.paymentMethod || 'bank',
+        paymentRef: transaction.paymentRef || '',
+        paymentMethodOther: transaction.paymentMethodOther || '',
         partyName: transaction.party?.name || '',
         tags: (transaction.tags || []).join(', '),
       });
@@ -571,6 +623,10 @@ function TransactionDialog({ open, onClose, onSave, transaction, saving, error }
       category: form.category.trim() || undefined,
       description: form.description,
       paymentMethod: form.paymentMethod,
+      // Cash carries no reference; otherwise persist the entered Payment ID.
+      paymentRef: form.paymentMethod === 'cash' ? '' : form.paymentRef.trim(),
+      // Custom method label only applies to 'other'.
+      paymentMethodOther: form.paymentMethod === 'other' ? form.paymentMethodOther.trim() : '',
       party: { name: form.partyName.trim() },
       tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),
     };
@@ -613,12 +669,65 @@ function TransactionDialog({ open, onClose, onSave, transaction, saving, error }
               InputLabelProps={{ shrink: true }}
               sx={{ flex: 1, minWidth: 160 }}
             />
-            <TextField select label="Payment method" value={form.paymentMethod} onChange={set('paymentMethod')} sx={{ flex: 1, minWidth: 160 }}>
+            <TextField
+              select
+              label="Payment method"
+              value={form.paymentMethod}
+              onChange={(e) => {
+                const v = e.target.value;
+                // "＋ Add custom method…" starts a fresh custom entry.
+                if (v === CUSTOM_METHOD) { setForm((f) => ({ ...f, paymentMethod: 'other', paymentMethodOther: '' })); return; }
+                // A previously-saved custom method — reuse its label, no re-typing.
+                if (String(v).startsWith(CUSTOM_PREFIX)) {
+                  setForm((f) => ({ ...f, paymentMethod: 'other', paymentMethodOther: String(v).slice(CUSTOM_PREFIX.length) }));
+                  return;
+                }
+                // A built-in method (clear any stale custom label unless it's 'other').
+                setForm((f) => ({ ...f, paymentMethod: v, paymentMethodOther: v === 'other' ? f.paymentMethodOther : '' }));
+              }}
+              sx={{ flex: 1, minWidth: 160 }}
+            >
               {PAYMENT_METHODS.map((m) => (
                 <MenuItem key={m} value={m}>{PAYMENT_METHOD_LABELS[m]}</MenuItem>
               ))}
+              {savedCustomMethods.length > 0 && <Divider />}
+              {savedCustomMethods.length > 0 && (
+                <MenuItem disabled sx={{ fontSize: 11, letterSpacing: 0.5, textTransform: 'uppercase', opacity: 0.7 }}>
+                  Saved custom
+                </MenuItem>
+              )}
+              {savedCustomMethods.map((label) => (
+                <MenuItem key={`${CUSTOM_PREFIX}${label}`} value={`${CUSTOM_PREFIX}${label}`}>{label}</MenuItem>
+              ))}
+              <Divider />
+              <MenuItem value={CUSTOM_METHOD} sx={{ color: 'primary.main', fontWeight: 600 }}>
+                <AddIcon fontSize="small" sx={{ mr: 1 }} /> Add custom method…
+              </MenuItem>
             </TextField>
           </Box>
+          {/* Custom method label — shown only for the 'other' method. */}
+          {form.paymentMethod === 'other' && (
+            <TextField
+              label="Custom method — how was it paid?"
+              value={form.paymentMethodOther}
+              onChange={set('paymentMethodOther')}
+              fullWidth
+              placeholder="e.g. Razorpay link, barter, adjustment, advance"
+              InputProps={{ startAdornment: <InputAdornment position="start"><AddIcon fontSize="small" color="disabled" /></InputAdornment> }}
+            />
+          )}
+          {/* Payment ID — shown for every method except cash. */}
+          {form.paymentMethod !== 'cash' && (
+            <TextField
+              label={PAYMENT_REF_LABELS[form.paymentMethod] || 'Payment ID'}
+              value={form.paymentRef}
+              onChange={set('paymentRef')}
+              fullWidth
+              placeholder={PAYMENT_REF_PLACEHOLDERS[form.paymentMethod] || 'Payment reference / ID'}
+              helperText={`Reference / ID for this ${(PAYMENT_METHOD_LABELS[form.paymentMethod] || '').toLowerCase()} payment`}
+              InputProps={{ startAdornment: <InputAdornment position="start"><ReceiptLongIcon fontSize="small" color="disabled" /></InputAdornment> }}
+            />
+          )}
           <TextField
             label="Category"
             value={form.category}

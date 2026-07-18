@@ -20,6 +20,8 @@ import {
   TextField,
   InputAdornment,
   MenuItem,
+  Menu,
+  Divider,
   Switch,
   FormControlLabel,
   Dialog,
@@ -31,19 +33,18 @@ import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import SearchIcon from '@mui/icons-material/Search';
+import LockIcon from '@mui/icons-material/LockOutlined';
+import PaletteIcon from '@mui/icons-material/PaletteOutlined';
+import ClearIcon from '@mui/icons-material/Clear';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import api, { getErrorMessage } from '../../lib/axios.js';
 import { getSocket, connectSocket } from '../../lib/socket.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import {
   contactsApi,
-  projectsApi,
   renewalsApi,
   campaignsApi,
   ticketsApi,
-  CONTACT_TYPES,
-  CONTACT_STATUSES,
-  PROJECT_STATUSES,
   RENEWAL_STATUSES,
   CAMPAIGN_CHANNELS,
   CAMPAIGN_STATUSES,
@@ -87,6 +88,56 @@ const STATUS_COLORS = {
 };
 const chipColor = (v) => STATUS_COLORS[v] || 'default';
 
+// Preset highlight colours for the manual per-row colour picker in the Renewals list.
+const ROW_COLORS = ['#ef4444', '#f59e0b', '#eab308', '#22c55e', '#14b8a6', '#3b82f6', '#8b5cf6', '#ec4899'];
+
+function ColorDot({ color, sx }) {
+  return (
+    <Box
+      component="span"
+      sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: color || 'text.disabled', display: 'inline-block', flexShrink: 0, ...sx }}
+    />
+  );
+}
+
+// Manual per-row colour picker (shown in the Actions cell of colour-enabled
+// resources). Picking a swatch tints the whole row's border; "Clear" removes it.
+function RowColorPicker({ value, onPick }) {
+  const [anchor, setAnchor] = useState(null);
+  const close = () => setAnchor(null);
+  return (
+    <>
+      <Tooltip title="Row colour">
+        <IconButton size="small" onClick={(e) => setAnchor(e.currentTarget)}>
+          {value
+            ? <Box sx={{ width: 15, height: 15, borderRadius: '50%', bgcolor: value, border: '1px solid rgba(0,0,0,0.25)' }} />
+            : <PaletteIcon fontSize="small" />}
+        </IconButton>
+      </Tooltip>
+      <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={close}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 1, px: 1.5, py: 1 }}>
+          {ROW_COLORS.map((c) => (
+            <Box
+              key={c}
+              onClick={() => { onPick(c); close(); }}
+              sx={{
+                width: 26, height: 26, borderRadius: '50%', bgcolor: c, cursor: 'pointer',
+                outline: value === c ? '2px solid' : 'none', outlineOffset: 2,
+                boxShadow: value === c ? 'none' : '0 0 0 1px rgba(0,0,0,0.12) inset',
+                transition: 'transform .1s', '&:hover': { transform: 'scale(1.15)' },
+              }}
+            />
+          ))}
+        </Box>
+        <Divider />
+        <MenuItem dense onClick={() => { onPick(''); close(); }}>
+          <ClearIcon fontSize="small" sx={{ mr: 1 }} /> Clear colour
+        </MenuItem>
+      </Menu>
+    </>
+  );
+}
+
 // --- Form value conversion --------------------------------------------------
 function toFormState(fields, record) {
   const form = {};
@@ -128,8 +179,8 @@ function buildPayload(fields, form) {
 }
 
 // --- Generic field renderer -------------------------------------------------
-function FieldInput({ field, value, setField, optionsFor }) {
-  const common = { fullWidth: true, size: 'small', label: field.label };
+function FieldInput({ field, value, setField, optionsFor, disabled }) {
+  const common = { fullWidth: true, size: 'small', label: field.label, disabled };
 
   switch (field.type) {
     case 'textarea':
@@ -144,9 +195,26 @@ function FieldInput({ field, value, setField, optionsFor }) {
       return <TextField {...common} value={value ?? ''} helperText="Comma separated" onChange={(e) => setField(field.name, e.target.value)} />;
     case 'select':
       return (
-        <TextField {...common} select required={field.required} value={value ?? ''} onChange={(e) => setField(field.name, e.target.value)}>
+        <TextField
+          {...common}
+          select
+          required={field.required}
+          value={value ?? ''}
+          onChange={(e) => setField(field.name, e.target.value)}
+          SelectProps={field.optionColors ? {
+            renderValue: (v) => (
+              <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
+                <ColorDot color={field.optionColors[v]} />
+                {humanize(v)}
+              </Box>
+            ),
+          } : undefined}
+        >
           {field.options.map((o) => (
-            <MenuItem key={o} value={o}>{humanize(o)}</MenuItem>
+            <MenuItem key={o} value={o}>
+              {field.optionColors && <ColorDot color={field.optionColors[o]} sx={{ mr: 1 }} />}
+              {humanize(o)}
+            </MenuItem>
           ))}
         </TextField>
       );
@@ -180,7 +248,16 @@ function FieldInput({ field, value, setField, optionsFor }) {
       );
     }
     default:
-      return <TextField {...common} required={field.required} value={value ?? ''} helperText={field.help} onChange={(e) => setField(field.name, e.target.value)} />;
+      return (
+        <TextField
+          {...common}
+          required={field.required}
+          value={value ?? ''}
+          helperText={disabled ? (field.lockedHelp || field.help) : field.help}
+          InputProps={disabled ? { endAdornment: <InputAdornment position="end"><LockIcon fontSize="small" color="disabled" /></InputAdornment> } : undefined}
+          onChange={(e) => setField(field.name, e.target.value)}
+        />
+      );
   }
 }
 
@@ -215,11 +292,16 @@ function RecordDialog({ open, onClose, onSave, saving, error, resource, record, 
       <DialogContent dividers>
         {(error || localError) && <Alert severity="error" sx={{ mb: 2 }}>{error || localError}</Alert>}
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2, pt: 1 }}>
-          {resource.fields.map((f) => (
-            <Box key={f.name} sx={{ gridColumn: f.full ? '1 / -1' : 'auto' }}>
-              <FieldInput field={f} value={form[f.name]} setField={setField} optionsFor={optionsFor} />
-            </Box>
-          ))}
+          {resource.fields.map((f) => {
+            // Fields marked lockOnEdit are captured at creation and can never be
+            // edited afterwards — disable them once the record exists.
+            const locked = Boolean(record) && f.lockOnEdit;
+            return (
+              <Box key={f.name} sx={{ gridColumn: f.full ? '1 / -1' : 'auto' }}>
+                <FieldInput field={f} value={form[f.name]} setField={setField} optionsFor={optionsFor} disabled={locked} />
+              </Box>
+            );
+          })}
         </Box>
       </DialogContent>
       <DialogActions>
@@ -258,8 +340,15 @@ function ResourcePanel({ resource, perms, refData }) {
     onSuccess: invalidate,
   });
 
+  // Inline per-row colour update (colour-enabled resources only).
+  const colorMutation = useMutation({
+    mutationFn: ({ id, color }) => resource.api.update(id, { color }),
+    onSuccess: invalidate,
+  });
+
   const rows = query.data?.data || [];
   const total = query.data?.meta?.total;
+  const spaced = Boolean(resource.rowColor); // card-style rows with gaps + per-row colour
 
   const openCreate = () => { setEditing(null); setSaveError(''); setDialogOpen(true); };
   const openEdit = (row) => { setEditing(row); setSaveError(''); setDialogOpen(true); };
@@ -296,10 +385,14 @@ function ResourcePanel({ resource, perms, refData }) {
       {query.error && <Alert severity="error">{getErrorMessage(query.error)}</Alert>}
 
       {!query.isLoading && !query.error && (
-        <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', overflowX: 'auto' }}>
-          <Table size="small">
+        <Paper elevation={0} sx={spaced
+          ? { overflowX: 'auto', bgcolor: 'transparent' }
+          : { border: '1px solid', borderColor: 'divider', overflowX: 'auto' }}>
+          <Table size="small" sx={spaced ? { borderCollapse: 'separate', borderSpacing: '0 10px' } : undefined}>
             <TableHead>
-              <TableRow sx={{ '& th': { whiteSpace: 'nowrap' } }}>
+              <TableRow sx={spaced
+                ? { '& th': { whiteSpace: 'nowrap', borderBottom: 'none', color: 'text.secondary', fontWeight: 600 } }
+                : { '& th': { whiteSpace: 'nowrap' } }}>
                 {resource.columns.map((col) => (
                   <TableCell key={col.key}>{col.label}</TableCell>
                 ))}
@@ -307,35 +400,62 @@ function ResourcePanel({ resource, perms, refData }) {
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row._id} hover>
-                  {resource.columns.map((col) => (
-                    <TableCell key={col.key}>
-                      {col.render
-                        ? col.render(row)
-                        : col.chip
-                          ? (getPath(row, col.key) ? <Chip size="small" label={humanize(getPath(row, col.key))} color={chipColor(getPath(row, col.key))} /> : '—')
-                          : col.primary
-                            ? <Typography sx={{ fontWeight: 600, fontSize: 14 }}>{getPath(row, col.key) || '—'}</Typography>
-                            : (getPath(row, col.key) ?? '—')}
-                    </TableCell>
-                  ))}
-                  {showActions && (
-                    <TableCell align="right">
-                      {perms.update && (
-                        <Tooltip title="Edit">
-                          <IconButton size="small" onClick={() => openEdit(row)}><EditIcon fontSize="small" /></IconButton>
-                        </Tooltip>
-                      )}
-                      {perms.delete && (
-                        <Tooltip title="Delete">
-                          <IconButton size="small" color="error" onClick={() => handleDelete(row)}><DeleteIcon fontSize="small" /></IconButton>
-                        </Tooltip>
-                      )}
-                    </TableCell>
-                  )}
-                </TableRow>
-              ))}
+              {rows.map((row) => {
+                const rc = spaced ? (row.color || null) : null;
+                // Card-style rows: light border all around (row colour, or the
+                // theme divider when none) with a faint tint, plus vertical gaps.
+                const rowSx = spaced
+                  ? {
+                      '& > td': {
+                        borderTop: '1px solid', borderBottom: '1px solid',
+                        borderColor: rc || 'divider',
+                        backgroundColor: rc ? `${rc}14` : 'background.paper',
+                      },
+                      '& > td:first-of-type': {
+                        borderLeft: '1px solid', borderColor: rc || 'divider',
+                        borderTopLeftRadius: 8, borderBottomLeftRadius: 8,
+                      },
+                      '& > td:last-of-type': {
+                        borderRight: '1px solid', borderColor: rc || 'divider',
+                        borderTopRightRadius: 8, borderBottomRightRadius: 8,
+                      },
+                    }
+                  : undefined;
+                return (
+                  <TableRow key={row._id} hover={!spaced} sx={rowSx}>
+                    {resource.columns.map((col) => (
+                      <TableCell key={col.key}>
+                        {col.render
+                          ? col.render(row)
+                          : col.chip
+                            ? (getPath(row, col.key) ? <Chip size="small" label={humanize(getPath(row, col.key))} color={chipColor(getPath(row, col.key))} /> : '—')
+                            : col.primary
+                              ? <Typography sx={{ fontWeight: 600, fontSize: 14 }}>{getPath(row, col.key) || '—'}</Typography>
+                              : (getPath(row, col.key) ?? '—')}
+                      </TableCell>
+                    ))}
+                    {showActions && (
+                      <TableCell align="right">
+                        <Box sx={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                          {resource.rowColor && perms.update && (
+                            <RowColorPicker value={row.color} onPick={(color) => colorMutation.mutate({ id: row._id, color })} />
+                          )}
+                          {perms.update && (
+                            <Tooltip title="Edit">
+                              <IconButton size="small" onClick={() => openEdit(row)}><EditIcon fontSize="small" /></IconButton>
+                            </Tooltip>
+                          )}
+                          {perms.delete && (
+                            <Tooltip title="Delete">
+                              <IconButton size="small" color="error" onClick={() => handleDelete(row)}><DeleteIcon fontSize="small" /></IconButton>
+                            </Tooltip>
+                          )}
+                        </Box>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                );
+              })}
               {rows.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={resource.columns.length + (showActions ? 1 : 0)}>
@@ -367,63 +487,38 @@ function ResourcePanel({ resource, perms, refData }) {
 // --- Resource configs -------------------------------------------------------
 const RESOURCES = [
   {
-    key: 'contacts', tabLabel: 'Contacts', singular: 'Contact', queryKey: 'rrrmas-contacts', api: contactsApi,
-    columns: [
-      { key: 'name', label: 'Name', primary: true },
-      { key: 'type', label: 'Type', chip: true },
-      { key: 'company', label: 'Company' },
-      { key: 'email', label: 'Email' },
-      { key: 'status', label: 'Status', chip: true },
-      { key: 'owner', label: 'Owner', render: (r) => r.owner?.name || '—' },
-    ],
-    fields: [
-      { name: 'name', label: 'Name', type: 'text', required: true },
-      { name: 'type', label: 'Type', type: 'select', options: CONTACT_TYPES, default: 'lead' },
-      { name: 'company', label: 'Company', type: 'text' },
-      { name: 'email', label: 'Email', type: 'text' },
-      { name: 'phone', label: 'Phone', type: 'text' },
-      { name: 'status', label: 'Status', type: 'select', options: CONTACT_STATUSES, default: 'new' },
-      { name: 'source', label: 'Source', type: 'text' },
-      { name: 'owner', label: 'Owner', type: 'ref', source: 'users' },
-      { name: 'tags', label: 'Tags', type: 'tags', full: true },
-      { name: 'notes', label: 'Notes', type: 'textarea', full: true },
-    ],
-  },
-  {
-    key: 'projects', tabLabel: 'Projects', singular: 'Project', queryKey: 'rrrmas-projects', api: projectsApi,
-    columns: [
-      { key: 'name', label: 'Name', primary: true },
-      { key: 'customer', label: 'Customer', render: (r) => r.customer?.name || '—' },
-      { key: 'status', label: 'Status', chip: true },
-      { key: 'manager', label: 'Manager', render: (r) => r.manager?.name || '—' },
-      { key: 'progress', label: 'Progress', render: (r) => `${r.progress ?? 0}%` },
-    ],
-    fields: [
-      { name: 'name', label: 'Name', type: 'text', required: true },
-      { name: 'customer', label: 'Customer', type: 'ref', source: 'contacts' },
-      { name: 'status', label: 'Status', type: 'select', options: PROJECT_STATUSES, default: 'planning' },
-      { name: 'manager', label: 'Manager', type: 'ref', source: 'users' },
-      { name: 'startDate', label: 'Start date', type: 'date' },
-      { name: 'endDate', label: 'End date', type: 'date' },
-      { name: 'budget', label: 'Budget', type: 'number', min: 0 },
-      { name: 'progress', label: 'Progress (%)', type: 'number', min: 0, max: 100 },
-      { name: 'team', label: 'Team', type: 'refs', source: 'users', full: true },
-      { name: 'tags', label: 'Tags', type: 'tags', full: true },
-      { name: 'description', label: 'Description', type: 'textarea', full: true },
-    ],
-  },
-  {
-    key: 'renewals', tabLabel: 'Renewals', singular: 'Renewal', queryKey: 'rrrmas-renewals', api: renewalsApi,
+    key: 'renewals', tabLabel: 'Renewals', singular: 'Renewal', queryKey: 'rrrmas-renewals', api: renewalsApi, rowColor: true,
     columns: [
       { key: 'title', label: 'Title', primary: true },
+      {
+        key: 'leadId',
+        label: 'Lead ID',
+        render: (r) => (r.leadId
+          ? (
+            <Box
+              component="code"
+              sx={{ px: 0.75, py: 0.25, borderRadius: 1, bgcolor: 'action.hover', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12, whiteSpace: 'nowrap' }}
+            >
+              {r.leadId}
+            </Box>
+          )
+          : <Typography component="span" variant="body2" color="text.disabled">—</Typography>),
+      },
       { key: 'customer', label: 'Customer', render: (r) => r.customer?.name || '—' },
       { key: 'amount', label: 'Amount', render: (r) => (r.amount != null ? `${r.currency || ''} ${r.amount}`.trim() : '—') },
       { key: 'dueDate', label: 'Due', render: (r) => formatDate(r.dueDate) },
-      { key: 'status', label: 'Status', chip: true },
+      { key: 'status', label: 'Status', render: (r) => (r.status ? <Chip size="small" variant="outlined" label={humanize(r.status)} /> : '—') },
       { key: 'autoRenew', label: 'Auto-renew', render: (r) => (r.autoRenew ? 'Yes' : 'No') },
     ],
     fields: [
       { name: 'title', label: 'Title', type: 'text', required: true },
+      {
+        name: 'leadId',
+        label: 'Lead ID',
+        type: 'text',
+        lockOnEdit: true,
+        lockedHelp: '🔒 Locked — the Lead ID can’t be changed after saving.',
+      },
       { name: 'customer', label: 'Customer', type: 'ref', source: 'contacts' },
       { name: 'product', label: 'Product (ID)', type: 'text', help: 'Product ObjectId (optional)' },
       { name: 'amount', label: 'Amount', type: 'number', min: 0 },
@@ -527,7 +622,7 @@ export default function RrrmasPage() {
     <Box>
       <PageHeader
         title="RRRMAS"
-        subtitle="Recruitment CRM, Running Projects, Renewals, Marketing & Support."
+        subtitle="Renewals, Marketing & Support."
       />
 
       <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', mb: 3 }}>

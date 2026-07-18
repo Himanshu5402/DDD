@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
 import { authApi } from '../api/auth.api.js';
 import { tokenStore } from '../lib/tokenStore.js';
+import { queryClient } from '../lib/queryClient.js';
 import { SESSION_EXPIRED_EVENT } from '../lib/axios.js';
 import { connectSocket, disconnectSocket } from '../lib/socket.js';
 
@@ -24,6 +25,9 @@ export function AuthProvider({ children }) {
   const clearSession = useCallback(() => {
     tokenStore.clear();
     disconnectSocket();
+    // Wipe all cached queries so the next user never sees the previous user's
+    // data (team reports, dashboards, notifications, etc.).
+    queryClient.clear();
     setUser(null);
     setPermissions(new Set());
     setIsSuperAdmin(false);

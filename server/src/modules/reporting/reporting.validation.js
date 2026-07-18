@@ -1,9 +1,18 @@
 import { z } from 'zod';
-import { REPORT_MOODS } from '../../models/dailyReport.model.js';
+import { REPORT_MOODS, ATTACHMENT_TYPES } from '../../models/dailyReport.model.js';
 
 const objectId = z.string().regex(/^[a-f\d]{24}$/i, 'Invalid id');
 
 export const idParamSchema = z.object({ id: objectId });
+
+const attachmentSchema = z.object({
+  url: z.string().trim().min(1).max(2000),
+  key: z.string().trim().max(500).optional(),
+  type: z.enum(ATTACHMENT_TYPES),
+  name: z.string().trim().max(300).optional(),
+  size: z.number().int().min(0).optional(),
+  mimeType: z.string().trim().max(150).optional(),
+});
 
 const meetingSchema = z.object({
   title: z.string().trim().min(1).max(300),
@@ -27,6 +36,15 @@ export const submitReportSchema = z.object({
   tasksWorked: z.array(objectId).max(100).optional(),
   remarks: z.string().max(5000).optional(),
   mood: z.enum(REPORT_MOODS).optional(),
+  attachments: z.array(attachmentSchema).max(10).optional(),
+});
+
+// Manager/admin approving a report — no body needed.
+export const approveSchema = z.object({}).optional();
+
+// Rejecting requires a reason so the author knows what to fix.
+export const rejectSchema = z.object({
+  reason: z.string().trim().min(3, 'Please give a reason').max(2000),
 });
 
 export const listMineSchema = z.object({

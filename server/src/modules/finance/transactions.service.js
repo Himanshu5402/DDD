@@ -65,6 +65,10 @@ export async function createTransaction(data, user) {
 
   const transaction = await Transaction.create({
     ...data,
+    // Cash payments never carry a reference id.
+    paymentRef: data.paymentMethod === 'cash' ? '' : data.paymentRef,
+    // A custom method label only applies to the 'other' method.
+    paymentMethodOther: data.paymentMethod === 'other' ? data.paymentMethodOther : '',
     customFields,
     createdBy: user._id,
   });
@@ -72,9 +76,22 @@ export async function createTransaction(data, user) {
   return Transaction.findById(transaction._id).populate(POPULATE);
 }
 
+/**
+ * Distinct custom payment-method labels the user has saved so far (method
+ * 'other' with a non-empty label). Powers the reusable dropdown so a custom
+ * method typed once can be picked again without re-typing.
+ */
+export async function listCustomPaymentMethods() {
+  const values = await Transaction.distinct('paymentMethodOther', {
+    paymentMethod: 'other',
+    paymentMethodOther: { $ne: '' },
+  });
+  return values.filter(Boolean).sort((a, b) => a.localeCompare(b));
+}
+
 const UPDATABLE = [
   'type', 'amount', 'currency', 'date', 'category', 'description',
-  'paymentMethod', 'party', 'linkedTo', 'isRecurring', 'recurringNote', 'tags',
+  'paymentMethod', 'paymentRef', 'paymentMethodOther', 'party', 'linkedTo', 'isRecurring', 'recurringNote', 'tags',
 ];
 
 export async function updateTransaction(id, data) {
@@ -82,6 +99,12 @@ export async function updateTransaction(id, data) {
   if (!transaction) throw ApiError.notFound('Transaction not found');
 
   for (const f of UPDATABLE) if (data[f] !== undefined) transaction[f] = data[f];
+
+  // Cash never carries a payment reference — clear it whenever the (possibly
+  // just-updated) method resolves to cash.
+  if (transaction.paymentMethod === 'cash') transaction.paymentRef = '';
+  // The custom label only applies to 'other'.
+  if (transaction.paymentMethod !== 'other') transaction.paymentMethodOther = '';
 
   if (data.customFields !== undefined) {
     const merged = { ...transaction.customFields, ...data.customFields };

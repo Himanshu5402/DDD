@@ -7,6 +7,7 @@ import { createApp } from './app.js';
 import { initSocket } from './socket/index.js';
 import { seedAll } from './seed/seed.core.js';
 import { startPepsiScheduler, stopPepsiScheduler } from './services/integrations/pepsi.scheduler.js';
+import { startExpiryScheduler, stopExpiryScheduler } from './services/maintenance/expiry.scheduler.js';
 
 let server;
 
@@ -30,6 +31,7 @@ async function bootstrap() {
     logger.info(`🚀 ITSYBIZZ API listening on http://localhost:${env.PORT}${env.API_PREFIX}`);
     logger.info(`📚 API docs at http://localhost:${env.PORT}/api/docs`);
     startPepsiScheduler(); // PEPSI project sync (no-op unless PEPSI_SYNC_ENABLED)
+    startExpiryScheduler(); // bills/renewals expiry reminders → admin notifications
   });
 }
 
@@ -37,6 +39,7 @@ async function shutdown(signal) {
   logger.info(`${signal} received — shutting down gracefully...`);
   try {
     stopPepsiScheduler();
+    stopExpiryScheduler();
     if (server) await new Promise((resolve) => server.close(resolve));
     await closeRedis();
     await disconnectDatabase();

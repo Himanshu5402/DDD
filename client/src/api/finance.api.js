@@ -3,13 +3,14 @@ import api from '../lib/axios.js';
 export const TRANSACTION_TYPES = ['income', 'expense'];
 export const TRANSACTION_TYPE_LABELS = { income: 'Income', expense: 'Expense' };
 
-export const PAYMENT_METHODS = ['cash', 'bank', 'upi', 'card', 'cheque', 'other'];
+export const PAYMENT_METHODS = ['cash', 'bank', 'upi', 'card', 'cheque', 'invoice', 'other'];
 export const PAYMENT_METHOD_LABELS = {
   cash: 'Cash',
   bank: 'Bank',
   upi: 'UPI',
   card: 'Card',
   cheque: 'Cheque',
+  invoice: 'Invoice',
   other: 'Other',
 };
 
@@ -36,6 +37,11 @@ export const financeApi = {
   },
   async removeTransaction(id) {
     await api.delete(`/finance/transactions/${id}`);
+  },
+  // Distinct custom payment-method labels saved so far (for the reusable dropdown).
+  async listCustomMethods() {
+    const { data } = await api.get('/finance/transactions/custom-methods');
+    return data.data.methods || [];
   },
 
   // --- Budgets ---

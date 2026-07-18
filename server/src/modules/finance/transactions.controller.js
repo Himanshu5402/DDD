@@ -36,6 +36,11 @@ export const remove = asyncHandler(async (req, res) => {
   return ApiResponse.ok(res, null, 'Transaction deleted');
 });
 
+export const customMethods = asyncHandler(async (req, res) => {
+  const methods = await service.listCustomPaymentMethods();
+  return ApiResponse.ok(res, { methods }, 'Custom payment methods');
+});
+
 export const summary = asyncHandler(async (req, res) => {
   const data = await service.getSummary(req.query);
   return ApiResponse.ok(res, data, 'Finance summary');
