@@ -35,3 +35,23 @@ export const remove = asyncHandler(async (req, res) => {
   emitChange('asset.deleted', req.params.id);
   return ApiResponse.ok(res, null, 'Asset deleted');
 });
+
+/** Assign an asset + its whole setup to an employee (or unassign with null). */
+export const assign = asyncHandler(async (req, res) => {
+  const result = await service.assignSetup(req.params.id, req.body.assignedTo);
+  emitChange('asset.assigned', req.params.id);
+  return ApiResponse.ok(res, result, `Setup assigned — ${result.count} component(s)`);
+});
+
+/** The current user's assigned assets (their workstation setup). */
+export const mine = asyncHandler(async (req, res) => {
+  const items = await service.listMyAssets(req.user._id);
+  return ApiResponse.ok(res, { items }, 'My assets');
+});
+
+/** Employee self-service: report an issue on one of their own assets. */
+export const report = asyncHandler(async (req, res) => {
+  const record = await service.reportAssetIssue(req.params.id, req.body, req.user);
+  emitChange('record.created', record._id);
+  return ApiResponse.created(res, { record }, 'Maintenance reported');
+});

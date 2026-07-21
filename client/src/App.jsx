@@ -17,6 +17,9 @@ const ProductsPage = lazy(() => import('./pages/products/ProductsPage.jsx'));
 const FinancePage = lazy(() => import('./pages/finance/FinancePage.jsx'));
 const MaintenancePage = lazy(() => import('./pages/maintenance/MaintenancePage.jsx'));
 const EmployeeAnalyticsPage = lazy(() => import('./pages/employees/EmployeeAnalyticsPage.jsx'));
+const LeavePage = lazy(() => import('./pages/leave/LeavePage.jsx'));
+const RecruitmentPage = lazy(() => import('./pages/recruitment/RecruitmentPage.jsx'));
+const PayrollPage = lazy(() => import('./pages/payroll/PayrollPage.jsx'));
 const EveningReportPage = lazy(() => import('./pages/reporting/EveningReportPage.jsx'));
 const AiHubPage = lazy(() => import('./pages/ai/AiHubPage.jsx'));
 const UsersPage = lazy(() => import('./pages/UsersPage.jsx'));
@@ -62,6 +65,9 @@ export default function App() {
             <Route path="finance" element={guarded('finance', FinancePage)} />
             <Route path="maintenance" element={guarded('maintenance', MaintenancePage)} />
             <Route path="employees" element={guarded('employee_analytics', EmployeeAnalyticsPage)} />
+            <Route path="leave" element={guarded('leave', LeavePage)} />
+            <Route path="recruitment" element={guarded('recruitment', RecruitmentPage)} />
+            <Route path="payroll" element={guarded('payroll', PayrollPage)} />
             <Route path="reporting" element={guarded('evening_reporting', EveningReportPage)} />
             <Route path="ai" element={guarded('ai', AiHubPage)} />
             <Route path="admin/users" element={guarded('users', UsersPage)} />

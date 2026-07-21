@@ -12,6 +12,8 @@ import {
   listAssetsSchema,
   createAssetSchema,
   updateAssetSchema,
+  assignAssetSchema,
+  reportAssetSchema,
   listRecordsSchema,
   createRecordSchema,
   updateRecordSchema,
@@ -29,12 +31,33 @@ const assetsRouter = Router();
 
 assetsRouter.get('/', authorize(M, ACTIONS.READ), validate({ query: listAssetsSchema }), assetsC.list);
 
+// Current user's assigned assets — any authenticated user (only ever returns the
+// caller's own assets, so no module permission needed). MUST precede '/:id'.
+assetsRouter.get('/mine', assetsC.mine);
+
 assetsRouter.post(
   '/',
   authorize(M, ACTIONS.CREATE),
   validate({ body: createAssetSchema }),
   auditAction({ action: ACTIONS.CREATE, module: M, entityType: 'Asset', describe: (req) => `Created asset "${req.body.name}"` }),
   assetsC.create
+);
+
+// Assign a whole workstation setup to an employee (admin action).
+assetsRouter.post(
+  '/:id/assign',
+  authorize(M, ACTIONS.UPDATE),
+  validate({ params: idParamSchema, body: assignAssetSchema }),
+  auditAction({ action: ACTIONS.UPDATE, module: M, entityType: 'Asset', entityId: (req) => req.params.id, describe: () => 'Assigned asset setup' }),
+  assetsC.assign
+);
+
+// Employee self-service: report an issue on an asset assigned to you (ownership
+// enforced in the service; no module permission required).
+assetsRouter.post(
+  '/:id/report',
+  validate({ params: idParamSchema, body: reportAssetSchema }),
+  assetsC.report
 );
 
 assetsRouter.get('/:id', authorize(M, ACTIONS.READ), validate({ params: idParamSchema }), assetsC.getOne);

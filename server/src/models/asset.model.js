@@ -31,6 +31,15 @@ const assetSchema = new Schema(
     category: { type: String, default: 'general' },
     location: { type: String, default: '' },
 
+    // Org unit + physical placement for IT inventory.
+    department: { type: String, default: '', trim: true, index: true },
+    room: { type: String, default: '', trim: true },
+
+    // Setup grouping: all components of one workstation share a setupNumber
+    // (e.g. "06" → CPU-06, MON-06, MOU-06, KEY-06). Assigning any component
+    // assigns the whole setup to the same employee (see assignSetup()).
+    setupNumber: { type: String, default: '', trim: true, index: true },
+
     status: { type: String, enum: ASSET_STATUSES, default: 'operational', index: true },
 
     purchaseDate: { type: Date },
@@ -46,7 +55,7 @@ const assetSchema = new Schema(
     // Dynamic admin-defined fields (entityType 'asset').
     customFields: { type: Schema.Types.Mixed, default: {} },
 
-    assignedTo: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    assignedTo: { type: Schema.Types.ObjectId, ref: 'User', default: null, index: true },
 
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
   },

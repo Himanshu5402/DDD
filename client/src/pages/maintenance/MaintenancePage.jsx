@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Box,
@@ -11,6 +11,7 @@ import {
   TableRow,
   TableCell,
   Chip,
+  Avatar,
   Button,
   IconButton,
   Typography,
@@ -290,20 +291,109 @@ function RowActions({ perms, onEdit, onDelete }) {
 const headSx = { '& th': { whiteSpace: 'nowrap' } };
 
 // --- Assets tab ---------------------------------------------------------------
+const ASSET_CATEGORIES = ['cpu', 'monitor', 'mouse', 'keyboard', 'headset', 'ups', 'laptop', 'printer', 'other'];
+
+// Emoji + colour per component type / status for the asset cards.
+const CAT_EMOJI = { cpu: '🖥️', desktop: '🖥️', monitor: '🖥️', mouse: '🖱️', keyboard: '⌨️', headset: '🎧', ups: '🔋', laptop: '💻', printer: '🖨️' };
+const catEmoji = (c) => CAT_EMOJI[c] || '📦';
+const ASSET_STATUS_DOT = { operational: '#22c55e', under_maintenance: '#f59e0b', breakdown: '#ef4444', retired: '#9ca3af' };
+const initialsOf = (name = '') => name.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase();
+
 const ASSET_FIELDS = [
   { name: 'name', label: 'Name', type: 'text', required: true },
-  { name: 'code', label: 'Code (asset tag)', type: 'text', help: 'Unique tag / QR value' },
-  { name: 'category', label: 'Category', type: 'text', default: 'general' },
-  { name: 'location', label: 'Location', type: 'text' },
+  { name: 'code', label: 'Asset ID / code', type: 'text', help: 'Unique tag, e.g. CPU-06' },
+  { name: 'category', label: 'Component type', type: 'select', options: ASSET_CATEGORIES, default: 'cpu' },
+  { name: 'setupNumber', label: 'Setup no.', type: 'text', help: 'Group one PC’s parts, e.g. 06' },
+  { name: 'department', label: 'Department', type: 'text' },
+  { name: 'room', label: 'Room no.', type: 'text' },
   { name: 'status', label: 'Status', type: 'select', options: ASSET_STATUSES, default: 'operational' },
-  { name: 'product', label: 'Product (ID)', type: 'refId', help: 'Product ObjectId (optional)' },
-  { name: 'purchaseDate', label: 'Purchase date', type: 'date' },
+  { name: 'assignedTo', label: 'Assigned to', type: 'user' },
   { name: 'purchaseCost', label: 'Purchase cost', type: 'number', min: 0 },
   { name: 'warrantyUntil', label: 'Warranty until', type: 'date' },
   { name: 'amc.provider', label: 'AMC provider', type: 'text' },
   { name: 'amc.validUntil', label: 'AMC valid until', type: 'date' },
-  { name: 'amc.notes', label: 'AMC notes', type: 'textarea', full: true },
 ];
+
+/** One workstation setup (or lone asset) as a card: components, status, assignee. */
+function SetupCard({ group, users, perms, onAssign, onEdit, onDelete }) {
+  const first = group.items[0];
+  const assignee = first.assignedTo; // populated & shared across a setup
+  const dept = group.items.find((i) => i.department)?.department;
+  const room = group.items.find((i) => i.room)?.room;
+
+  return (
+    <Paper
+      elevation={0}
+      sx={{
+        border: '1px solid', borderColor: assignee ? 'primary.light' : 'divider', borderRadius: 3,
+        overflow: 'hidden', display: 'flex', flexDirection: 'column',
+        transition: 'box-shadow .15s', '&:hover': { boxShadow: 3 },
+      }}
+    >
+      <Box sx={{ px: 2, py: 1.5, background: 'linear-gradient(135deg,#EEF2FF,#F5F3FF)', borderBottom: '1px solid', borderColor: 'divider' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+          <Typography sx={{ fontWeight: 700, fontSize: 15 }} noWrap>
+            {group.setupNumber ? `Setup #${group.setupNumber}` : first.name}
+          </Typography>
+          <Chip size="small" label={`${group.items.length} item${group.items.length === 1 ? '' : 's'}`} />
+        </Box>
+        <Typography variant="caption" color="text.secondary">
+          {[dept, room ? `Room ${room}` : null].filter(Boolean).join(' · ') || 'No department set'}
+        </Typography>
+      </Box>
+
+      <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1, flex: 1 }}>
+        {group.items.map((it) => (
+          <Box key={it._id} sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+            <Box sx={{ fontSize: 20, width: 24, textAlign: 'center', flexShrink: 0 }}>{catEmoji(it.category)}</Box>
+            <Box sx={{ minWidth: 0, flex: 1 }}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>{it.name}</Typography>
+            </Box>
+            {it.code && (
+              <Chip size="small" variant="outlined" label={it.code} sx={{ fontFamily: 'ui-monospace, monospace', fontSize: 11, height: 20 }} />
+            )}
+            <Tooltip title={humanize(it.status)}>
+              <Box sx={{ width: 9, height: 9, borderRadius: '50%', flexShrink: 0, bgcolor: ASSET_STATUS_DOT[it.status] || '#9ca3af' }} />
+            </Tooltip>
+            {perms.update && (
+              <IconButton size="small" onClick={() => onEdit(it)}><EditIcon sx={{ fontSize: 16 }} /></IconButton>
+            )}
+            {perms.delete && (
+              <IconButton size="small" color="error" onClick={() => onDelete(it)}><DeleteIcon sx={{ fontSize: 16 }} /></IconButton>
+            )}
+          </Box>
+        ))}
+      </Box>
+
+      <Box sx={{ px: 2, py: 1.25, borderTop: '1px solid', borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1.5, bgcolor: assignee ? 'rgba(99,102,241,0.04)' : 'transparent' }}>
+        <Avatar sx={{ width: 30, height: 30, fontSize: 12, bgcolor: assignee ? '#EEF2FF' : 'action.hover', color: assignee ? '#4338CA' : 'text.disabled' }}>
+          {assignee ? initialsOf(assignee.name) : '—'}
+        </Avatar>
+        <Box sx={{ minWidth: 0, flex: 1 }}>
+          {perms.update ? (
+            <TextField
+              select
+              size="small"
+              fullWidth
+              variant="standard"
+              value={assignee?._id || ''}
+              onChange={(e) => onAssign(first._id, e.target.value || null)}
+              SelectProps={{ displayEmpty: true }}
+              InputProps={{ disableUnderline: true }}
+            >
+              <MenuItem value=""><em>Unassigned — assign to…</em></MenuItem>
+              {users.map((u) => (
+                <MenuItem key={u._id} value={u._id}>{u.name}{u.designation ? ` · ${u.designation}` : ''}</MenuItem>
+              ))}
+            </TextField>
+          ) : (
+            <Typography variant="body2" noWrap>{assignee?.name || 'Unassigned'}</Typography>
+          )}
+        </Box>
+      </Box>
+    </Paper>
+  );
+}
 
 function AssetsPanel({ perms }) {
   const qc = useQueryClient();
@@ -318,6 +408,15 @@ function AssetsPanel({ perms }) {
     queryFn: () =>
       assetsApi.list({ limit: 100, ...(search ? { search } : {}), ...(status ? { status } : {}) }),
   });
+
+  // Employee options for the assign dropdown (all active users; auth-only).
+  const usersQuery = useQuery({
+    queryKey: ['maintenance-user-options'],
+    queryFn: () => usersApi.orgChart(),
+    staleTime: 60000,
+    retry: false,
+  });
+  const users = usersQuery.data || [];
 
   // Asset changes ripple into the ref pool + upcoming lists too.
   const invalidate = () =>
@@ -334,8 +433,26 @@ function AssetsPanel({ perms }) {
     onSuccess: invalidate,
   });
 
+  // Assigning any component cascades to its whole setup (server-side).
+  const assignMutation = useMutation({
+    mutationFn: ({ id, assignedTo }) => assetsApi.assign(id, assignedTo),
+    onSuccess: invalidate,
+    onError: (err) => window.alert(getErrorMessage(err, 'Failed to assign')),
+  });
+
   const rows = query.data?.data || [];
   const total = query.data?.meta?.total;
+
+  // Group components into workstation setups (shared setupNumber); lone assets stand alone.
+  const groups = useMemo(() => {
+    const map = new Map();
+    for (const a of rows) {
+      const key = a.setupNumber ? `setup:${a.setupNumber}` : `solo:${a._id}`;
+      if (!map.has(key)) map.set(key, { key, setupNumber: a.setupNumber || '', items: [] });
+      map.get(key).items.push(a);
+    }
+    return [...map.values()].sort((x, y) => (x.setupNumber || 'zzz').localeCompare(y.setupNumber || 'zzz'));
+  }, [rows]);
 
   const openCreate = () => { setEditing(null); setSaveError(''); setDialogOpen(true); };
   const openEdit = (row) => { setEditing(row); setSaveError(''); setDialogOpen(true); };
@@ -344,8 +461,6 @@ function AssetsPanel({ perms }) {
       deleteMutation.mutate(row._id, { onError: (err) => window.alert(getErrorMessage(err, 'Failed to delete')) });
     }
   };
-
-  const showActions = perms.update || perms.delete;
 
   return (
     <Box>
@@ -375,43 +490,27 @@ function AssetsPanel({ perms }) {
       <ListStates query={query} />
 
       {!query.isLoading && !query.error && (
-        <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', overflowX: 'auto' }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow sx={headSx}>
-                <TableCell>Asset</TableCell>
-                <TableCell>Category</TableCell>
-                <TableCell>Location</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell>Warranty until</TableCell>
-                {showActions && <TableCell align="right">Actions</TableCell>}
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row._id} hover>
-                  <TableCell><AssetNameCell name={row.name} code={row.code} /></TableCell>
-                  <TableCell>{row.category || '—'}</TableCell>
-                  <TableCell>{row.location || '—'}</TableCell>
-                  <TableCell><StatusChip value={row.status} /></TableCell>
-                  <TableCell>{formatDate(row.warrantyUntil)}</TableCell>
-                  {showActions && (
-                    <RowActions perms={perms} onEdit={() => openEdit(row)} onDelete={() => handleDelete(row)} />
-                  )}
-                </TableRow>
-              ))}
-              {rows.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={5 + (showActions ? 1 : 0)}>
-                    <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 3 }}>
-                      No assets yet.
-                    </Typography>
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </Paper>
+        rows.length === 0 ? (
+          <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 3, py: 6 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
+              No assets yet — add a CPU, monitor, mouse… and give components of one PC the same setup no.
+            </Typography>
+          </Paper>
+        ) : (
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: '1fr 1fr 1fr' }, gap: 2 }}>
+            {groups.map((g) => (
+              <SetupCard
+                key={g.key}
+                group={g}
+                users={users}
+                perms={perms}
+                onAssign={(id, assignedTo) => assignMutation.mutate({ id, assignedTo })}
+                onEdit={openEdit}
+                onDelete={handleDelete}
+              />
+            ))}
+          </Box>
+        )
       )}
 
       <EntityDialog
@@ -423,6 +522,7 @@ function AssetsPanel({ perms }) {
         title="Asset"
         fields={ASSET_FIELDS}
         record={editing}
+        users={users}
       />
     </Box>
   );

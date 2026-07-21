@@ -3,6 +3,13 @@ import bcrypt from 'bcryptjs';
 
 const BCRYPT_ROUNDS = 10;
 
+// HR master enums (single source of truth; mirrored by the HRMS sync + client).
+export const EMPLOYMENT_TYPES = Object.freeze(['full_time', 'part_time', 'contract', 'intern', 'consultant']);
+export const EMPLOYMENT_STATUSES = Object.freeze(['active', 'on_notice', 'on_leave', 'suspended', 'exited']);
+export const WORK_MODES = Object.freeze(['office', 'remote', 'hybrid']);
+// HRMS access level → drives the DDD role mapping during sync.
+export const HRMS_ACCESS_LEVELS = Object.freeze(['hr_admin', 'manager', 'employee']);
+
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
@@ -32,10 +39,24 @@ const userSchema = new mongoose.Schema(
     // A manager's team = User.find({ reportsTo: managerId }).
     reportsTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
 
-    // HRMS integration (future): employees sync from the company HRMS by
-    // hrmsId (idempotent upserts), same pattern as the PEPSI project sync.
+    // HRMS integration: employees sync from the company HRMS by hrmsId
+    // (idempotent upserts), same read-only-mirror pattern as the PEPSI project sync.
     source: { type: String, enum: ['manual', 'hrms'], default: 'manual' },
     hrmsId: { type: String, unique: true, sparse: true, trim: true },
+    employeeCode: { type: String, trim: true, default: '' },
+    // The HRMS access level this employee holds, kept for reference/auditing of
+    // the access → DDD role mapping applied at sync time.
+    accessLevel: { type: String, enum: HRMS_ACCESS_LEVELS, default: undefined },
+
+    // HR master data (mirrored from HRMS; owner/manager dashboards read these).
+    employmentType: { type: String, enum: EMPLOYMENT_TYPES, default: undefined },
+    employmentStatus: { type: String, enum: EMPLOYMENT_STATUSES, default: 'active', index: true },
+    dateOfJoining: { type: Date, default: null },
+    dateOfExit: { type: Date, default: null },
+    probationEndDate: { type: Date, default: null },
+    workMode: { type: String, enum: WORK_MODES, default: undefined },
+    workLocation: { type: String, trim: true, default: '' },
+    dateOfBirth: { type: Date, default: null },
 
     lastLoginAt: { type: Date },
     passwordChangedAt: { type: Date },

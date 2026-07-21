@@ -1,25 +1,38 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   Alert,
   Avatar,
   AvatarGroup,
   Box,
+  Button,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Grid,
+  IconButton,
   LinearProgress,
   Paper,
+  TextField,
   Tooltip,
   Typography,
 } from '@mui/material';
+import ReportProblemIcon from '@mui/icons-material/ReportProblemOutlined';
 import Masonry from '@mui/lab/Masonry';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import { dashboardApi } from '../../api/dashboard.api.js';
+import { assetsApi } from '../../api/maintenance.api.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { getErrorMessage } from '../../lib/axios.js';
 import { getSocket, connectSocket } from '../../lib/socket.js';
+
+// Emoji per component type for the "My IT setup" cards.
+const CAT_EMOJI = { cpu: '🖥️', desktop: '🖥️', monitor: '🖥️', mouse: '🖱️', keyboard: '⌨️', headset: '🎧', ups: '🔋', laptop: '💻', printer: '🖨️' };
+const catEmoji = (c) => CAT_EMOJI[c] || '📦';
 
 const PRIORITY_SOFT = {
   low: { bgcolor: '#F3F4F6', color: '#4B5563' },
@@ -200,10 +213,57 @@ function buildCards(o) {
   }
 
   if (o.employees) {
+    const e = o.employees;
     cards.push({
       label: 'Present today',
-      value: o.employees.presentToday,
-      hint: 'incl. work from home',
+      value: e.presentToday,
+      hint: e.onLeaveToday != null ? `${e.onLeaveToday} on leave` : 'incl. work from home',
+    });
+    if (e.headcount != null) {
+      const net = (e.joinersThisMonth || 0) - (e.exitsThisMonth || 0);
+      cards.push({
+        label: 'Headcount',
+        value: e.headcount,
+        hint: `${e.joinersThisMonth || 0} joined · ${e.exitsThisMonth || 0} exited this month`,
+        color: net < 0 ? 'error.main' : 'text.primary',
+      });
+    }
+    if (e.docsExpiringSoon > 0 || e.probationsDue > 0) {
+      cards.push({
+        label: 'Compliance',
+        value: (e.docsExpiringSoon || 0) + (e.probationsDue || 0),
+        hint: `${e.docsExpiringSoon || 0} docs expiring · ${e.probationsDue || 0} probations due`,
+        color: 'warning.main',
+      });
+    }
+  }
+
+  if (o.leave) {
+    cards.push({
+      label: 'On leave today',
+      value: o.leave.onLeaveToday,
+      hint: `${o.leave.upcomingThisWeek} upcoming this week`,
+      badge:
+        o.leave.pendingApprovals > 0 ? (
+          <Chip size="small" label={`${o.leave.pendingApprovals} pending`} sx={{ bgcolor: '#FEF3C7', color: '#92400E' }} />
+        ) : null,
+    });
+  }
+
+  if (o.recruitment) {
+    cards.push({
+      label: 'Open positions',
+      value: o.recruitment.openPositions,
+      hint: `${o.recruitment.totalOpenings} openings · ${o.recruitment.offersPending} offers out`,
+    });
+  }
+
+  if (o.payroll && o.payroll.month) {
+    cards.push({
+      label: 'Payroll (latest)',
+      value: compactINR(o.payroll.totalCost),
+      hint: `${o.payroll.headcount} paid · ${formatINR(o.payroll.totalCost)}`,
+      color: 'text.primary',
     });
   }
 
@@ -270,6 +330,108 @@ function TaskRow({ task, onClick, showAssignees = false }) {
         }}
       />
     </Box>
+  );
+}
+
+/**
+ * "My IT setup" — the current user's assigned assets, with self-service
+ * maintenance reporting. Hidden entirely when nothing is assigned to them.
+ */
+function MyAssetsSection() {
+  const qc = useQueryClient();
+  const { data: assets = [], isLoading } = useQuery({
+    queryKey: ['maintenance', 'my-assets'],
+    queryFn: () => assetsApi.mine(),
+  });
+  const [reportAsset, setReportAsset] = useState(null);
+  const [reason, setReason] = useState('');
+  const [done, setDone] = useState('');
+
+  const reportMutation = useMutation({
+    mutationFn: ({ id, reason: r }) => assetsApi.report(id, { reason: r }),
+    onSuccess: () => {
+      setReportAsset(null);
+      setReason('');
+      setDone('Reported — the maintenance team has been notified.');
+      qc.invalidateQueries({ queryKey: ['maintenance', 'my-assets'] });
+    },
+  });
+
+  if (isLoading || assets.length === 0) return null;
+
+  const setupNo = assets.find((a) => a.setupNumber)?.setupNumber;
+
+  return (
+    <Paper sx={{ p: 3, mb: 4, border: '1px solid', borderColor: 'divider', borderRadius: 3 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+        <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: 11 }}>
+          My IT setup — assigned to me
+        </Typography>
+        {setupNo && <Chip size="small" label={`Setup #${setupNo}`} color="primary" variant="outlined" />}
+        <Chip size="small" label={`${assets.length} item${assets.length === 1 ? '' : 's'}`} />
+      </Box>
+
+      {done && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setDone('')}>{done}</Alert>}
+
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '1fr 1fr 1fr' }, gap: 1.5 }}>
+        {assets.map((a) => (
+          <Box
+            key={a._id}
+            sx={{
+              display: 'flex', alignItems: 'center', gap: 1.5, p: 1.5,
+              border: '1px solid', borderColor: 'divider', borderRadius: 2,
+              transition: 'border-color .15s, box-shadow .15s',
+              '&:hover': { borderColor: 'primary.main', boxShadow: 1 },
+            }}
+          >
+            <Box sx={{ fontSize: 24, lineHeight: 1 }}>{catEmoji(a.category)}</Box>
+            <Box sx={{ minWidth: 0, flex: 1 }}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>{a.name}</Typography>
+              <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
+                {a.code || '—'}{a.room ? ` · room ${a.room}` : ''}
+              </Typography>
+            </Box>
+            <Tooltip title="Report an issue with this item">
+              <IconButton size="small" color="warning" onClick={() => { setReportAsset(a); setReason(''); }}>
+                <ReportProblemIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
+        ))}
+      </Box>
+
+      <Dialog open={Boolean(reportAsset)} onClose={() => setReportAsset(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Report maintenance — {reportAsset?.name}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            {reportAsset?.code}{reportAsset?.setupNumber ? ` · setup #${reportAsset.setupNumber}` : ''}
+          </Typography>
+          <TextField
+            label="What's the problem?"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            fullWidth
+            multiline
+            minRows={3}
+            autoFocus
+            placeholder="e.g. Monitor flickering, mouse not working, CPU keeps restarting…"
+          />
+          {reportMutation.isError && (
+            <Alert severity="error" sx={{ mt: 2 }}>{getErrorMessage(reportMutation.error, 'Failed to report')}</Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setReportAsset(null)}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={!reason.trim() || reportMutation.isPending}
+            onClick={() => reportMutation.mutate({ id: reportAsset._id, reason: reason.trim() })}
+          >
+            {reportMutation.isPending ? 'Reporting…' : 'Report issue'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Paper>
   );
 }
 
@@ -470,6 +632,8 @@ export default function DashboardOverviewPage() {
           ))}
         </Grid>
       )}
+
+      <MyAssetsSection />
 
       {lowerCards.length > 0 && (
         <Masonry columns={{ xs: 1, md: 2 }} spacing={2.5} sx={{ width: 'auto' }}>

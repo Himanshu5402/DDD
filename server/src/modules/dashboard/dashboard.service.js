@@ -19,6 +19,11 @@ import Asset from '../../models/asset.model.js';
 import MaintenanceRecord from '../../models/maintenanceRecord.model.js';
 import DailyReport from '../../models/dailyReport.model.js';
 import EmployeeRecord from '../../models/employeeRecord.model.js';
+import LeaveRequest from '../../models/leaveRequest.model.js';
+import JobPosition from '../../models/jobPosition.model.js';
+import Candidate from '../../models/candidate.model.js';
+import PayrollPeriod from '../../models/payrollPeriod.model.js';
+import HrDocument from '../../models/hrDocument.model.js';
 import User from '../../models/user.model.js';
 import { MODULES } from '../../config/constants.js';
 
@@ -214,11 +219,70 @@ export async function getOverview(user, permissions, isSuperAdmin) {
 
   if (can(MODULES.EMPLOYEE_ANALYTICS)) {
     add('employees', async () => {
-      const presentToday = await EmployeeRecord.countDocuments({
-        date: { $gte: todayStart, $lt: todayEnd },
-        attendance: { $in: PRESENT_ATTENDANCE_STATUSES },
-      });
-      return { presentToday };
+      const [presentToday, headcount, joinersThisMonth, exitsThisMonth, onLeaveToday, docsExpiringSoon, probationsDue] =
+        await Promise.all([
+          EmployeeRecord.countDocuments({
+            date: { $gte: todayStart, $lt: todayEnd },
+            attendance: { $in: PRESENT_ATTENDANCE_STATUSES },
+          }),
+          User.countDocuments({ isActive: true, employmentStatus: { $ne: 'exited' } }),
+          User.countDocuments({ dateOfJoining: { $gte: monthStart } }),
+          User.countDocuments({ dateOfExit: { $gte: monthStart } }),
+          EmployeeRecord.countDocuments({ date: { $gte: todayStart, $lt: todayEnd }, attendance: 'leave' }),
+          HrDocument.countDocuments({ expiresOn: { $gte: now, $lte: in30Days } }),
+          User.countDocuments({ probationEndDate: { $gte: now, $lte: in30Days } }),
+        ]);
+      return { presentToday, headcount, joinersThisMonth, exitsThisMonth, onLeaveToday, docsExpiringSoon, probationsDue };
+    });
+  }
+
+  if (can(MODULES.LEAVE)) {
+    add('leave', async () => {
+      const weekEnd = new Date(now.getTime() + 7 * DAY_MS);
+      const [onLeaveToday, pendingApprovals, upcomingThisWeek] = await Promise.all([
+        LeaveRequest.countDocuments({ status: 'approved', fromDate: { $lt: todayEnd }, toDate: { $gte: todayStart } }),
+        LeaveRequest.countDocuments({ status: 'pending' }),
+        LeaveRequest.countDocuments({ status: 'approved', fromDate: { $gte: now, $lte: weekEnd } }),
+      ]);
+      return { onLeaveToday, pendingApprovals, upcomingThisWeek };
+    });
+  }
+
+  if (can(MODULES.RECRUITMENT)) {
+    add('recruitment', async () => {
+      const [openPositions, openingsRows, offersPending, funnelRows] = await Promise.all([
+        JobPosition.countDocuments({ status: 'open' }),
+        JobPosition.aggregate([{ $match: { status: 'open' } }, { $group: { _id: null, total: { $sum: '$openings' } } }]),
+        Candidate.countDocuments({ stage: 'offer' }),
+        Candidate.aggregate([{ $group: { _id: '$stage', count: { $sum: 1 } } }]),
+      ]);
+      const funnel = Object.fromEntries(funnelRows.map((r) => [r._id, r.count]));
+      return { openPositions, totalOpenings: openingsRows[0]?.total || 0, offersPending, funnel };
+    });
+  }
+
+  if (can(MODULES.PAYROLL)) {
+    add('payroll', async () => {
+      const latestMonth = await PayrollPeriod.findOne().sort({ month: -1 }).select('month').lean();
+      if (!latestMonth) return { month: null, totalCost: 0, headcount: 0, reimbursementsPending: 0 };
+      const rows = await PayrollPeriod.aggregate([
+        { $match: { month: latestMonth.month } },
+        {
+          $group: {
+            _id: null,
+            totalCost: { $sum: '$totalCost' },
+            headcount: { $sum: '$headcount' },
+            reimbursementsPending: { $sum: '$reimbursementsPending' },
+          },
+        },
+      ]);
+      const agg = rows[0] || {};
+      return {
+        month: latestMonth.month,
+        totalCost: agg.totalCost || 0,
+        headcount: agg.headcount || 0,
+        reimbursementsPending: agg.reimbursementsPending || 0,
+      };
     });
   }
 

@@ -13,6 +13,7 @@
     "seed:employees": "node src/seed/seed.employees.js",
     "seed:demo": "node src/seed/seed.demo.js",
     "seed:org": "node src/seed/seed.org.js",
+    "seed:hrms": "node src/seed/seed.hrms.js",
     "smoke": "node src/tests/smoke.js",
     "smoke:tasks": "node src/tests/tasks.smoke.js",
     "smoke:wave1": "node src/tests/wave1.smoke.js",

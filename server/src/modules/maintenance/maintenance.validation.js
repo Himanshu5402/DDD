@@ -21,6 +21,21 @@ export const listAssetsSchema = z.object({
   status: z.enum(ASSET_STATUSES).optional(),
   category: z.string().optional(),
   product: objectId.optional(),
+  assignedTo: objectId.optional(),
+  setupNumber: z.string().optional(),
+  department: z.string().optional(),
+});
+
+// Assign a whole setup (or a lone asset) to an employee — null unassigns.
+export const assignAssetSchema = z.object({
+  assignedTo: objectId.nullable(),
+});
+
+// Employee self-service: report an issue on an asset assigned to them.
+export const reportAssetSchema = z.object({
+  reason: z.string().trim().min(1).max(2000),
+  type: z.enum(MAINTENANCE_TYPES).optional(),
+  scheduledFor: z.coerce.date().optional(),
 });
 
 const amcSchema = z.object({
@@ -35,6 +50,9 @@ export const createAssetSchema = z.object({
   product: objectId.nullable().optional(),
   category: z.string().trim().max(100).optional(),
   location: z.string().trim().max(200).optional(),
+  department: z.string().trim().max(120).optional(),
+  room: z.string().trim().max(60).optional(),
+  setupNumber: z.string().trim().max(40).optional(),
   status: z.enum(ASSET_STATUSES).optional(),
   purchaseDate: z.coerce.date().optional(),
   purchaseCost: z.number().min(0).optional(),
@@ -51,6 +69,9 @@ export const updateAssetSchema = z.object({
   product: objectId.nullable().optional(),
   category: z.string().trim().max(100).optional(),
   location: z.string().trim().max(200).optional(),
+  department: z.string().trim().max(120).optional(),
+  room: z.string().trim().max(60).optional(),
+  setupNumber: z.string().trim().max(40).optional(),
   status: z.enum(ASSET_STATUSES).optional(),
   purchaseDate: z.coerce.date().nullable().optional(),
   purchaseCost: z.number().min(0).optional(),

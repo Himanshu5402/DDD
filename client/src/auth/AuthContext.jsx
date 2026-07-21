@@ -1,9 +1,16 @@
-import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
-import { authApi } from '../api/auth.api.js';
-import { tokenStore } from '../lib/tokenStore.js';
-import { queryClient } from '../lib/queryClient.js';
-import { SESSION_EXPIRED_EVENT } from '../lib/axios.js';
-import { connectSocket, disconnectSocket } from '../lib/socket.js';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  useCallback,
+} from "react";
+import { authApi } from "../api/auth.api.js";
+import { tokenStore } from "../lib/tokenStore.js";
+import { queryClient } from "../lib/queryClient.js";
+import { SESSION_EXPIRED_EVENT } from "../lib/axios.js";
+import { connectSocket, disconnectSocket } from "../lib/socket.js";
 
 const AuthContext = createContext(null);
 
@@ -12,13 +19,13 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [permissions, setPermissions] = useState(new Set());
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
-  const [status, setStatus] = useState('loading');
+  const [status, setStatus] = useState("loading");
 
   const applyProfile = useCallback((profile) => {
     setUser(profile.user);
     setPermissions(new Set(profile.permissions || []));
     setIsSuperAdmin(Boolean(profile.isSuperAdmin));
-    setStatus('authenticated');
+    setStatus("authenticated");
     connectSocket();
   }, []);
 
@@ -31,7 +38,7 @@ export function AuthProvider({ children }) {
     setUser(null);
     setPermissions(new Set());
     setIsSuperAdmin(false);
-    setStatus('unauthenticated');
+    setStatus("unauthenticated");
   }, []);
 
   // Bootstrap: restore session on load.
@@ -39,7 +46,7 @@ export function AuthProvider({ children }) {
     let active = true;
     (async () => {
       if (!tokenStore.hasSession()) {
-        setStatus('unauthenticated');
+        setStatus("unauthenticated");
         return;
       }
       try {
@@ -69,7 +76,7 @@ export function AuthProvider({ children }) {
       applyProfile(profile);
       return profile;
     },
-    [applyProfile]
+    [applyProfile],
   );
 
   const logout = useCallback(async () => {
@@ -84,9 +91,12 @@ export function AuthProvider({ children }) {
   const hasPermission = useCallback(
     (module, action) => {
       if (isSuperAdmin) return true;
-      return permissions.has(`${module}:${action}`) || permissions.has(`${module}:manage`);
+      return (
+        permissions.has(`${module}:${action}`) ||
+        permissions.has(`${module}:manage`)
+      );
     },
-    [isSuperAdmin, permissions]
+    [isSuperAdmin, permissions],
   );
 
   const value = useMemo(
@@ -95,12 +105,12 @@ export function AuthProvider({ children }) {
       permissions,
       isSuperAdmin,
       status,
-      isAuthenticated: status === 'authenticated',
+      isAuthenticated: status === "authenticated",
       login,
       logout,
       hasPermission,
     }),
-    [user, permissions, isSuperAdmin, status, login, logout, hasPermission]
+    [user, permissions, isSuperAdmin, status, login, logout, hasPermission],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -108,6 +118,6 @@ export function AuthProvider({ children }) {
 
 export function useAuth() {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within <AuthProvider>');
+  if (!ctx) throw new Error("useAuth must be used within <AuthProvider>");
   return ctx;
 }

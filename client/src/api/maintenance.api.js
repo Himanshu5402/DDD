@@ -32,6 +32,21 @@ export const assetsApi = {
   async remove(id) {
     await api.delete(`/maintenance/assets/${id}`);
   },
+  // Assign an asset + its whole setup to an employee (null unassigns).
+  async assign(id, assignedTo) {
+    const { data } = await api.post(`/maintenance/assets/${id}/assign`, { assignedTo });
+    return data.data; // { setupNumber, assignedTo, count, items }
+  },
+  // The current user's assigned assets.
+  async mine() {
+    const { data } = await api.get('/maintenance/assets/mine');
+    return data.data.items || [];
+  },
+  // Employee self-service: report an issue on an asset assigned to you.
+  async report(id, payload) {
+    const { data } = await api.post(`/maintenance/assets/${id}/report`, payload);
+    return data.data.record;
+  },
 };
 
 export const recordsApi = {

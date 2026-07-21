@@ -7,6 +7,9 @@ import Inventory2Icon from '@mui/icons-material/Inventory2';
 import PaymentsIcon from '@mui/icons-material/Payments';
 import BuildIcon from '@mui/icons-material/Build';
 import InsightsIcon from '@mui/icons-material/Insights';
+import EventBusyIcon from '@mui/icons-material/EventBusy';
+import PersonSearchIcon from '@mui/icons-material/PersonSearch';
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import NightsStayIcon from '@mui/icons-material/NightsStay';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import PeopleIcon from '@mui/icons-material/People';
@@ -44,7 +47,15 @@ export const NAV_SECTIONS = [
       { label: 'Products', to: '/products', icon: Inventory2Icon, module: 'products', action: 'read', ready: true },
       { label: 'Finance', to: '/finance', icon: PaymentsIcon, module: 'finance', action: 'read', ready: true },
       { label: 'Maintenance', to: '/maintenance', icon: BuildIcon, module: 'maintenance', action: 'read', ready: true },
+    ],
+  },
+  {
+    heading: 'People',
+    items: [
       { label: 'Employee Analytics', to: '/employees', icon: InsightsIcon, module: 'employee_analytics', action: 'read', ready: true },
+      { label: 'Leave', to: '/leave', icon: EventBusyIcon, module: 'leave', action: 'read', ready: true },
+      { label: 'Recruitment', to: '/recruitment', icon: PersonSearchIcon, module: 'recruitment', action: 'read', ready: true },
+      { label: 'Payroll', to: '/payroll', icon: AccountBalanceWalletIcon, module: 'payroll', action: 'read', ready: true },
     ],
   },
   {

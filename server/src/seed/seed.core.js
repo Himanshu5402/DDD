@@ -83,7 +83,15 @@ export async function seedRoles(permMap) {
         ...keysFor(permMap, operationalModules, [ACTIONS.CREATE, ACTIONS.READ, ACTIONS.UPDATE]),
         ...keysFor(
           permMap,
-          [MODULES.FINANCE, MODULES.EMPLOYEE_ANALYTICS, MODULES.MAINTENANCE, MODULES.PRODUCTS],
+          [
+            MODULES.FINANCE,
+            MODULES.EMPLOYEE_ANALYTICS,
+            MODULES.MAINTENANCE,
+            MODULES.PRODUCTS,
+            MODULES.LEAVE,
+            MODULES.RECRUITMENT,
+            MODULES.PAYROLL,
+          ],
           [ACTIONS.READ]
         ),
       ],

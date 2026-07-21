@@ -20,6 +20,10 @@ export const MODULES = Object.freeze({
   FINANCE: 'finance',
   MAINTENANCE: 'maintenance',
   EMPLOYEE_ANALYTICS: 'employee_analytics',
+  // HR / People modules — read-only mirrors fed by the company HRMS.
+  LEAVE: 'leave',
+  RECRUITMENT: 'recruitment',
+  PAYROLL: 'payroll',
   EVENING_REPORTING: 'evening_reporting',
   AI: 'ai',
   DASHBOARD: 'dashboard',

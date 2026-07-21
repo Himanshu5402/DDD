@@ -224,10 +224,13 @@ export async function getTeam(query) {
 }
 
 /**
- * HRMS sync stub — the integration point for external HRMS APIs. When an HRMS
- * is configured this should pull attendance/hours and upsert EmployeeRecords
- * with source 'hrms'.
+ * HRMS sync — the integration point for the external HRMS API. Until that API
+ * ships it is mock-backed: it pulls the HRMS snapshot and upserts the employee
+ * master fields, attendance, leave, recruitment, payroll and documents (all
+ * source 'hrms'). Swap `ingestHrmsSnapshot` for a real HRMS client when live.
  */
 export async function hrmsSync() {
-  return { synced: 0, status: 'not_configured' };
+  const { seedHrms } = await import('../../seed/seed.hrms.js');
+  const counts = await seedHrms();
+  return { status: 'synced', ...counts };
 }

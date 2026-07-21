@@ -9,7 +9,9 @@ export const ATTENDANCE_STATUSES = Object.freeze([
   'leave',
   'wfh',
   'holiday',
+  'week_off',
 ]);
+export const LEAVE_TYPES = Object.freeze(['casual', 'sick', 'earned', 'unpaid', 'comp_off', 'maternity', 'paternity']);
 export const RECORD_SOURCES = Object.freeze(['manual', 'hrms']);
 
 const kpiSchema = new Schema(
@@ -29,6 +31,15 @@ const employeeRecordSchema = new Schema(
 
     attendance: { type: String, enum: ATTENDANCE_STATUSES, default: 'present' },
     hoursWorked: { type: Number, min: 0, max: 24, default: 0 },
+
+    // Attendance detail (mirrored from HRMS punch data).
+    checkIn: { type: Date, default: null },
+    checkOut: { type: Date, default: null },
+    overtimeHours: { type: Number, min: 0, max: 24, default: 0 },
+    isLate: { type: Boolean, default: false },
+    lateByMinutes: { type: Number, min: 0, default: 0 },
+    // When attendance === 'leave', which leave type it was booked against.
+    leaveType: { type: String, enum: LEAVE_TYPES, default: undefined },
 
     kpis: [kpiSchema],
     productivityScore: { type: Number, min: 0, max: 100, default: 0 },
