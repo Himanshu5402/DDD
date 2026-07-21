@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import {
   Alert,
   Avatar,
@@ -8,7 +8,6 @@ import {
   Box,
   Button,
   Chip,
-  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -20,34 +19,62 @@ import {
   TextField,
   Tooltip,
   Typography,
-} from '@mui/material';
-import ReportProblemIcon from '@mui/icons-material/ReportProblemOutlined';
-import Masonry from '@mui/lab/Masonry';
-import PageHeader from '../../components/ui/PageHeader.jsx';
-import { dashboardApi } from '../../api/dashboard.api.js';
-import { assetsApi } from '../../api/maintenance.api.js';
-import { useAuth } from '../../auth/AuthContext.jsx';
-import { getErrorMessage } from '../../lib/axios.js';
-import { getSocket, connectSocket } from '../../lib/socket.js';
+  Card,
+  CardContent,
+  CardHeader,
+} from "@mui/material";
+import { motion } from "framer-motion";
+import ReportProblemIcon from "@mui/icons-material/ReportProblemOutlined";
+import Masonry from "@mui/lab/Masonry";
+import PageHeader from "../../components/ui/PageHeader.jsx";
+import {
+  StatGridSkeleton,
+  ContentCardSkeleton,
+  ListSkeleton,
+  PageSkeleton,
+} from "../../components/ui/SkeletonLoader.jsx";
+import { dashboardApi } from "../../api/dashboard.api.js";
+import { assetsApi } from "../../api/maintenance.api.js";
+import { useAuth } from "../../auth/AuthContext.jsx";
+import { getErrorMessage } from "../../lib/axios.js";
+import { getSocket, connectSocket } from "../../lib/socket.js";
+
+const MotionCard = motion(Card);
+const MotionPaper = motion(Paper);
 
 // Emoji per component type for the "My IT setup" cards.
-const CAT_EMOJI = { cpu: '🖥️', desktop: '🖥️', monitor: '🖥️', mouse: '🖱️', keyboard: '⌨️', headset: '🎧', ups: '🔋', laptop: '💻', printer: '🖨️' };
-const catEmoji = (c) => CAT_EMOJI[c] || '📦';
+const CAT_EMOJI = {
+  cpu: "🖥️",
+  desktop: "🖥️",
+  monitor: "🖥️",
+  mouse: "🖱️",
+  keyboard: "⌨️",
+  headset: "🎧",
+  ups: "🔋",
+  laptop: "💻",
+  printer: "🖨️",
+};
+const catEmoji = (c) => CAT_EMOJI[c] || "📦";
 
 const PRIORITY_SOFT = {
-  low: { bgcolor: '#F3F4F6', color: '#4B5563' },
-  medium: { bgcolor: '#F0F9FF', color: '#0369A1' },
-  high: { bgcolor: '#FFFBEB', color: '#B45309' },
-  urgent: { bgcolor: '#FEF2F2', color: '#B91C1C' },
+  low: { bgcolor: "#F3F4F6", color: "#4B5563" },
+  medium: { bgcolor: "#F0F9FF", color: "#0369A1" },
+  high: { bgcolor: "#FFFBEB", color: "#B45309" },
+  urgent: { bgcolor: "#FEF2F2", color: "#B91C1C" },
 };
 
-function initialsOf(name = '') {
-  return name.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase();
+function initialsOf(name = "") {
+  return name
+    .split(" ")
+    .map((n) => n[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
 }
 
-const inr = new Intl.NumberFormat('en-IN', {
-  style: 'currency',
-  currency: 'INR',
+const inr = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
   minimumFractionDigits: 0,
   maximumFractionDigits: 0,
 });
@@ -57,45 +84,79 @@ function formatINR(n) {
 }
 
 function compactINR(n) {
-  return `₹${new Intl.NumberFormat('en-IN', { notation: 'compact', maximumFractionDigits: 1 }).format(n || 0)}`;
+  return `₹${new Intl.NumberFormat("en-IN", { notation: "compact", maximumFractionDigits: 1 }).format(n || 0)}`;
 }
 
 function formatDate(d) {
-  return d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+  return d
+    ? new Date(d).toLocaleDateString("en-IN", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      })
+    : "—";
 }
 
-function StatCard({ label, value, hint, color = 'text.primary', badge }) {
+function StatCard({ label, value, hint, color = "text.primary", badge }) {
   return (
-    <Paper
+    <MotionCard
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
       sx={{
         p: 2.5,
-        border: '1px solid',
-        borderColor: 'divider',
+        border: "1px solid",
+        borderColor: "divider",
         borderRadius: 3,
-        height: '100%',
+        height: "100%",
+        background: "linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(249,250,251,0.9) 100%)",
+        backdropFilter: "blur(8px)",
+        transition: "all 0.2s ease",
+        "&:hover": {
+          boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
+          borderColor: "primary.light",
+          transform: "translateY(-2px)",
+        },
       }}
     >
       <Typography
         variant="caption"
-        sx={{ color: 'text.secondary', fontWeight: 600, display: 'block' }}
+        sx={{ color: "text.secondary", fontWeight: 600, display: "block" }}
       >
         {label}
       </Typography>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mt: 0.75 }}>
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 1,
+          flexWrap: "wrap",
+          mt: 0.75,
+        }}
+      >
         <Typography
           component="div"
-          sx={{ fontWeight: 800, fontSize: 28, lineHeight: 1.2, letterSpacing: '-0.02em', color }}
+          sx={{
+            fontWeight: 800,
+            fontSize: 28,
+            lineHeight: 1.2,
+            letterSpacing: "-0.02em",
+            color,
+          }}
         >
           {value}
         </Typography>
         {badge}
       </Box>
       {hint && (
-        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
+        <Typography
+          variant="caption"
+          sx={{ color: "text.secondary", display: "block", mt: 0.5 }}
+        >
           {hint}
         </Typography>
       )}
-    </Paper>
+    </MotionCard>
   );
 }
 
@@ -106,52 +167,60 @@ function buildCards(o) {
   if (o.tasks) {
     if (o.tasks.team) {
       cards.push({
-        label: 'Team open tasks',
+        label: "Team open tasks",
         value: o.tasks.team.open,
         hint: `${o.tasks.team.size} people report to you`,
-        color: 'primary.main',
+        color: "primary.main",
       });
     }
     cards.push(
-      { label: 'My open tasks', value: o.tasks.myOpen, hint: 'assigned to you' },
       {
-        label: 'Overdue tasks',
-        value: o.tasks.overdue,
-        hint: 'past their due date',
-        color: o.tasks.overdue > 0 ? 'error.main' : 'text.primary',
+        label: "My open tasks",
+        value: o.tasks.myOpen,
+        hint: "assigned to you",
       },
       {
-        label: 'Due today',
+        label: "Overdue tasks",
+        value: o.tasks.overdue,
+        hint: "past their due date",
+        color: o.tasks.overdue > 0 ? "error.main" : "text.primary",
+      },
+      {
+        label: "Due today",
         value: o.tasks.dueToday,
-        hint: 'across the team',
-        color: o.tasks.dueToday > 0 ? 'warning.main' : 'text.primary',
-      }
+        hint: "across the team",
+        color: o.tasks.dueToday > 0 ? "warning.main" : "text.primary",
+      },
     );
   }
 
   if (o.goals) {
     cards.push(
       {
-        label: 'Active goals',
+        label: "Active goals",
         value: o.goals.active,
         hint: `${o.goals.achievedThisMonth} achieved this month`,
       },
       {
-        label: 'At-risk goals',
+        label: "At-risk goals",
         value: o.goals.atRisk,
-        hint: 'need attention',
-        color: o.goals.atRisk > 0 ? 'warning.main' : 'text.primary',
-      }
+        hint: "need attention",
+        color: o.goals.atRisk > 0 ? "warning.main" : "text.primary",
+      },
     );
   }
 
   if (o.projects) {
-    cards.push({ label: 'Active projects', value: o.projects.active, hint: 'in delivery' });
+    cards.push({
+      label: "Active projects",
+      value: o.projects.active,
+      hint: "in delivery",
+    });
   }
 
   if (o.renewals) {
     cards.push({
-      label: 'Renewals due 30d',
+      label: "Renewals due 30d",
       value: o.renewals.dueIn30,
       hint: `${formatINR(o.renewals.amountDueIn30)} to collect`,
     });
@@ -159,15 +228,15 @@ function buildCards(o) {
 
   if (o.support) {
     cards.push({
-      label: 'Open tickets',
+      label: "Open tickets",
       value: o.support.open,
-      hint: 'in the support queue',
+      hint: "in the support queue",
       badge:
         o.support.breached > 0 ? (
           <Chip
             size="small"
             label={`${o.support.breached} SLA breached`}
-            sx={{ bgcolor: '#FEF2F2', color: '#B91C1C' }}
+            sx={{ bgcolor: "#FEF2F2", color: "#B91C1C" }}
           />
         ) : null,
     });
@@ -176,83 +245,91 @@ function buildCards(o) {
   if (o.finance) {
     cards.push(
       {
-        label: 'Month income',
+        label: "Month income",
         value: compactINR(o.finance.monthIncome),
         hint: formatINR(o.finance.monthIncome),
-        color: 'success.main',
+        color: "success.main",
       },
       {
-        label: 'Month expense',
+        label: "Month expense",
         value: compactINR(o.finance.monthExpense),
         hint: formatINR(o.finance.monthExpense),
-        color: 'error.main',
+        color: "error.main",
       },
       {
-        label: 'Month net',
+        label: "Month net",
         value: compactINR(o.finance.monthNet),
         hint: formatINR(o.finance.monthNet),
-        color: o.finance.monthNet >= 0 ? 'success.main' : 'error.main',
-      }
+        color: o.finance.monthNet >= 0 ? "success.main" : "error.main",
+      },
     );
   }
 
   if (o.maintenance) {
     cards.push(
       {
-        label: 'Upcoming maintenance',
+        label: "Upcoming maintenance",
         value: o.maintenance.upcomingIn30,
-        hint: 'next 30 days',
+        hint: "next 30 days",
       },
       {
-        label: 'Breakdown assets',
+        label: "Breakdown assets",
         value: o.maintenance.breakdownAssets,
-        hint: 'need repair',
-        color: o.maintenance.breakdownAssets > 0 ? 'error.main' : 'text.primary',
-      }
+        hint: "need repair",
+        color:
+          o.maintenance.breakdownAssets > 0 ? "error.main" : "text.primary",
+      },
     );
   }
 
   if (o.employees) {
     const e = o.employees;
     cards.push({
-      label: 'Present today',
+      label: "Present today",
       value: e.presentToday,
-      hint: e.onLeaveToday != null ? `${e.onLeaveToday} on leave` : 'incl. work from home',
+      hint:
+        e.onLeaveToday != null
+          ? `${e.onLeaveToday} on leave`
+          : "incl. work from home",
     });
     if (e.headcount != null) {
       const net = (e.joinersThisMonth || 0) - (e.exitsThisMonth || 0);
       cards.push({
-        label: 'Headcount',
+        label: "Headcount",
         value: e.headcount,
         hint: `${e.joinersThisMonth || 0} joined · ${e.exitsThisMonth || 0} exited this month`,
-        color: net < 0 ? 'error.main' : 'text.primary',
+        color: net < 0 ? "error.main" : "text.primary",
       });
     }
     if (e.docsExpiringSoon > 0 || e.probationsDue > 0) {
       cards.push({
-        label: 'Compliance',
+        label: "Compliance",
         value: (e.docsExpiringSoon || 0) + (e.probationsDue || 0),
         hint: `${e.docsExpiringSoon || 0} docs expiring · ${e.probationsDue || 0} probations due`,
-        color: 'warning.main',
+        color: "warning.main",
       });
     }
   }
 
   if (o.leave) {
     cards.push({
-      label: 'On leave today',
+      label: "On leave today",
       value: o.leave.onLeaveToday,
       hint: `${o.leave.upcomingThisWeek} upcoming this week`,
       badge:
         o.leave.pendingApprovals > 0 ? (
-          <Chip size="small" label={`${o.leave.pendingApprovals} pending`} sx={{ bgcolor: '#FEF3C7', color: '#92400E' }} />
+          <Chip
+            size="small"
+            label={`${o.leave.pendingApprovals} pending`}
+            sx={{ bgcolor: "#FEF3C7", color: "#92400E" }}
+          />
         ) : null,
     });
   }
 
   if (o.recruitment) {
     cards.push({
-      label: 'Open positions',
+      label: "Open positions",
       value: o.recruitment.openPositions,
       hint: `${o.recruitment.totalOpenings} openings · ${o.recruitment.offersPending} offers out`,
     });
@@ -260,18 +337,18 @@ function buildCards(o) {
 
   if (o.payroll && o.payroll.month) {
     cards.push({
-      label: 'Payroll (latest)',
+      label: "Payroll (latest)",
       value: compactINR(o.payroll.totalCost),
       hint: `${o.payroll.headcount} paid · ${formatINR(o.payroll.totalCost)}`,
-      color: 'text.primary',
+      color: "text.primary",
     });
   }
 
-  if (o.reporting && typeof o.reporting.submittedToday === 'number') {
+  if (o.reporting && typeof o.reporting.submittedToday === "number") {
     cards.push({
-      label: 'Reports today',
+      label: "Reports today",
       value: o.reporting.submittedToday,
-      hint: 'evening reports submitted',
+      hint: "evening reports submitted",
     });
   }
 
@@ -280,53 +357,109 @@ function buildCards(o) {
 
 function SectionCard({ label, children }) {
   return (
-    <Paper sx={{ p: 3, border: '1px solid', borderColor: 'divider', borderRadius: 3 }}>
+    <MotionPaper
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
+      sx={{
+        p: 3,
+        border: "1px solid",
+        borderColor: "divider",
+        borderRadius: 3,
+        background: "linear-gradient(135deg, rgba(255,255,255,0.8) 0%, rgba(249,250,251,0.8) 100%)",
+        backdropFilter: "blur(8px)",
+        transition: "all 0.2s ease",
+        "&:hover": {
+          boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
+          borderColor: "primary.light",
+        },
+      }}
+    >
       <Typography
         variant="overline"
-        sx={{ color: 'text.secondary', display: 'block', mb: 1.5, fontSize: 11 }}
+        sx={{
+          color: "text.secondary",
+          display: "block",
+          mb: 1.5,
+          fontSize: 11,
+        }}
       >
         {label}
       </Typography>
       {children}
-    </Paper>
+    </MotionPaper>
   );
 }
 
 /** One task row with full delegation context: priority, due, who assigned it, to whom. */
 function TaskRow({ task, onClick, showAssignees = false }) {
-  const overdue = task.dueDate && new Date(task.dueDate) < new Date() && task.status !== 'done';
+  const overdue =
+    task.dueDate &&
+    new Date(task.dueDate) < new Date() &&
+    task.status !== "done";
   return (
     <Box
       onClick={onClick}
       sx={{
-        display: 'flex', alignItems: 'center', gap: 1.5, py: 1.1, cursor: 'pointer',
-        borderBottom: '1px solid', borderColor: 'divider',
-        '&:last-of-type': { borderBottom: 'none' },
-        '&:hover': { bgcolor: 'action.hover', mx: -1, px: 1, borderRadius: 1.5 },
+        display: "flex",
+        alignItems: "center",
+        gap: 1.5,
+        py: 1.1,
+        cursor: "pointer",
+        borderBottom: "1px solid",
+        borderColor: "divider",
+        "&:last-of-type": { borderBottom: "none" },
+        "&:hover": {
+          bgcolor: "action.hover",
+          mx: -1,
+          px: 1,
+          borderRadius: 1.5,
+        },
       }}
     >
       <Box sx={{ minWidth: 0, flex: 1 }}>
-        <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>{task.title}</Typography>
-        <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
-          {task.assignedBy?.name ? `from ${task.assignedBy.name}` : task.createdBy?.name ? `by ${task.createdBy.name}` : ''}
-          {task.dueDate ? ` · due ${formatDate(task.dueDate)}` : ''}
+        <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
+          {task.title}
+        </Typography>
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          noWrap
+          sx={{ display: "block" }}
+        >
+          {task.assignedBy?.name
+            ? `from ${task.assignedBy.name}`
+            : task.createdBy?.name
+              ? `by ${task.createdBy.name}`
+              : ""}
+          {task.dueDate ? ` · due ${formatDate(task.dueDate)}` : ""}
         </Typography>
       </Box>
       {showAssignees && task.assignees?.length > 0 && (
-        <AvatarGroup max={3} sx={{ '& .MuiAvatar-root': { width: 22, height: 22, fontSize: 10 } }}>
+        <AvatarGroup
+          max={3}
+          sx={{ "& .MuiAvatar-root": { width: 22, height: 22, fontSize: 10 } }}
+        >
           {task.assignees.map((a) => (
             <Tooltip key={a._id} title={a.name}>
-              <Avatar sx={{ bgcolor: '#EEF2FF', color: '#4338CA' }}>{initialsOf(a.name)}</Avatar>
+              <Avatar sx={{ bgcolor: "#EEF2FF", color: "#4338CA" }}>
+                {initialsOf(a.name)}
+              </Avatar>
             </Tooltip>
           ))}
         </AvatarGroup>
       )}
       <Chip
-        label={overdue ? 'overdue' : task.priority}
+        label={overdue ? "overdue" : task.priority}
         size="small"
         sx={{
-          height: 20, fontSize: 10, textTransform: 'capitalize', flexShrink: 0,
-          ...(overdue ? { bgcolor: '#FEF2F2', color: '#B91C1C' } : (PRIORITY_SOFT[task.priority] || PRIORITY_SOFT.low)),
+          height: 20,
+          fontSize: 10,
+          textTransform: "capitalize",
+          flexShrink: 0,
+          ...(overdue
+            ? { bgcolor: "#FEF2F2", color: "#B91C1C" }
+            : PRIORITY_SOFT[task.priority] || PRIORITY_SOFT.low),
         }}
       />
     </Box>
@@ -340,20 +473,20 @@ function TaskRow({ task, onClick, showAssignees = false }) {
 function MyAssetsSection() {
   const qc = useQueryClient();
   const { data: assets = [], isLoading } = useQuery({
-    queryKey: ['maintenance', 'my-assets'],
+    queryKey: ["maintenance", "my-assets"],
     queryFn: () => assetsApi.mine(),
   });
   const [reportAsset, setReportAsset] = useState(null);
-  const [reason, setReason] = useState('');
-  const [done, setDone] = useState('');
+  const [reason, setReason] = useState("");
+  const [done, setDone] = useState("");
 
   const reportMutation = useMutation({
     mutationFn: ({ id, reason: r }) => assetsApi.report(id, { reason: r }),
     onSuccess: () => {
       setReportAsset(null);
-      setReason('');
-      setDone('Reported — the maintenance team has been notified.');
-      qc.invalidateQueries({ queryKey: ['maintenance', 'my-assets'] });
+      setReason("");
+      setDone("Reported — the maintenance team has been notified.");
+      qc.invalidateQueries({ queryKey: ["maintenance", "my-assets"] });
     },
   });
 
@@ -362,37 +495,108 @@ function MyAssetsSection() {
   const setupNo = assets.find((a) => a.setupNumber)?.setupNumber;
 
   return (
-    <Paper sx={{ p: 3, mb: 4, border: '1px solid', borderColor: 'divider', borderRadius: 3 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
-        <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: 11 }}>
+   <MotionPaper
+     initial={{ opacity: 0, y: 8 }}
+     animate={{ opacity: 1, y: 0 }}
+     transition={{ duration: 0.4 }}
+     sx={{
+       p: 3,
+       mb: 4,
+       border: "1px solid",
+       borderColor: "divider",
+       borderRadius: 3,
+       background: "linear-gradient(135deg, rgba(255,255,255,0.8) 0%, rgba(249,250,251,0.8) 100%)",
+       backdropFilter: "blur(8px)",
+       transition: "all 0.2s ease",
+       "&:hover": {
+         boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
+         borderColor: "primary.light",
+       },
+     }}
+   >
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 1,
+          mb: 2,
+          flexWrap: "wrap",
+        }}
+      >
+        <Typography
+          variant="overline"
+          sx={{ color: "text.secondary", fontSize: 11 }}
+        >
           My IT setup — assigned to me
         </Typography>
-        {setupNo && <Chip size="small" label={`Setup #${setupNo}`} color="primary" variant="outlined" />}
-        <Chip size="small" label={`${assets.length} item${assets.length === 1 ? '' : 's'}`} />
+        {setupNo && (
+          <Chip
+            size="small"
+            label={`Setup #${setupNo}`}
+            color="primary"
+            variant="outlined"
+          />
+        )}
+        <Chip
+          size="small"
+          label={`${assets.length} item${assets.length === 1 ? "" : "s"}`}
+        />
       </Box>
 
-      {done && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setDone('')}>{done}</Alert>}
+      {done && (
+        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setDone("")}>
+          {done}
+        </Alert>
+      )}
 
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '1fr 1fr 1fr' }, gap: 1.5 }}>
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", md: "1fr 1fr 1fr" },
+          gap: 1.5,
+        }}
+      >
         {assets.map((a) => (
           <Box
             key={a._id}
             sx={{
-              display: 'flex', alignItems: 'center', gap: 1.5, p: 1.5,
-              border: '1px solid', borderColor: 'divider', borderRadius: 2,
-              transition: 'border-color .15s, box-shadow .15s',
-              '&:hover': { borderColor: 'primary.main', boxShadow: 1 },
+              display: "flex",
+              alignItems: "center",
+              gap: 1.5,
+              p: 1.5,
+              border: "1px solid",
+              borderColor: "divider",
+              borderRadius: 2,
+              transition: "border-color .15s, box-shadow .15s",
+              "&:hover": { borderColor: "primary.main", boxShadow: 1 },
             }}
           >
-            <Box sx={{ fontSize: 24, lineHeight: 1 }}>{catEmoji(a.category)}</Box>
+            <Box sx={{ fontSize: 24, lineHeight: 1 }}>
+              {catEmoji(a.category)}
+            </Box>
             <Box sx={{ minWidth: 0, flex: 1 }}>
-              <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>{a.name}</Typography>
-              <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
-                {a.code || '—'}{a.room ? ` · room ${a.room}` : ''}
+              <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
+                {a.name}
+              </Typography>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                noWrap
+                sx={{ display: "block" }}
+              >
+                {a.code || "—"}
+                {a.room ? ` · room ${a.room}` : ""}
               </Typography>
             </Box>
             <Tooltip title="Report an issue with this item">
-              <IconButton size="small" color="warning" onClick={() => { setReportAsset(a); setReason(''); }}>
+              <IconButton
+                size="small"
+                color="warning"
+                onClick={() => {
+                  setReportAsset(a);
+                  setReason("");
+                }}
+              >
                 <ReportProblemIcon fontSize="small" />
               </IconButton>
             </Tooltip>
@@ -400,11 +604,19 @@ function MyAssetsSection() {
         ))}
       </Box>
 
-      <Dialog open={Boolean(reportAsset)} onClose={() => setReportAsset(null)} fullWidth maxWidth="sm">
+      <Dialog
+        open={Boolean(reportAsset)}
+        onClose={() => setReportAsset(null)}
+        fullWidth
+        maxWidth="sm"
+      >
         <DialogTitle>Report maintenance — {reportAsset?.name}</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            {reportAsset?.code}{reportAsset?.setupNumber ? ` · setup #${reportAsset.setupNumber}` : ''}
+            {reportAsset?.code}
+            {reportAsset?.setupNumber
+              ? ` · setup #${reportAsset.setupNumber}`
+              : ""}
           </Typography>
           <TextField
             label="What's the problem?"
@@ -417,7 +629,9 @@ function MyAssetsSection() {
             placeholder="e.g. Monitor flickering, mouse not working, CPU keeps restarting…"
           />
           {reportMutation.isError && (
-            <Alert severity="error" sx={{ mt: 2 }}>{getErrorMessage(reportMutation.error, 'Failed to report')}</Alert>
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {getErrorMessage(reportMutation.error, "Failed to report")}
+            </Alert>
           )}
         </DialogContent>
         <DialogActions>
@@ -425,13 +639,18 @@ function MyAssetsSection() {
           <Button
             variant="contained"
             disabled={!reason.trim() || reportMutation.isPending}
-            onClick={() => reportMutation.mutate({ id: reportAsset._id, reason: reason.trim() })}
+            onClick={() =>
+              reportMutation.mutate({
+                id: reportAsset._id,
+                reason: reason.trim(),
+              })
+            }
           >
-            {reportMutation.isPending ? 'Reporting…' : 'Report issue'}
+            {reportMutation.isPending ? "Reporting…" : "Report issue"}
           </Button>
         </DialogActions>
       </Dialog>
-    </Paper>
+    </MotionPaper>
   );
 }
 
@@ -441,7 +660,7 @@ export default function DashboardOverviewPage() {
   const navigate = useNavigate();
 
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ['dashboard', 'overview'],
+    queryKey: ["dashboard", "overview"],
     queryFn: () => dashboardApi.overview(),
   });
 
@@ -450,16 +669,17 @@ export default function DashboardOverviewPage() {
   useEffect(() => {
     const socket = getSocket() || connectSocket();
     if (!socket) return undefined;
-    const handler = () => qc.invalidateQueries({ queryKey: ['dashboard', 'overview'] });
-    socket.on('tasks:changed', handler);
-    return () => socket.off('tasks:changed', handler);
+    const handler = () =>
+      qc.invalidateQueries({ queryKey: ["dashboard", "overview"] });
+    socket.on("tasks:changed", handler);
+    return () => socket.off("tasks:changed", handler);
   }, [qc]);
 
   const openTask = (t) => navigate(`/tasks?task=${t._id}`);
 
   const header = (
     <PageHeader
-      title={`Welcome back, ${user?.name?.split(' ')[0] || 'there'} 👋`}
+      title={`Welcome back, ${user?.name?.split(" ")[0] || "there"} 👋`}
       subtitle="Your business at a glance."
     />
   );
@@ -468,8 +688,8 @@ export default function DashboardOverviewPage() {
     return (
       <Box>
         {header}
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}>
-          <CircularProgress />
+        <Box sx={{ mt: 4 }}>
+          <PageSkeleton />
         </Box>
       </Box>
     );
@@ -479,7 +699,9 @@ export default function DashboardOverviewPage() {
     return (
       <Box>
         {header}
-        <Alert severity="error">{getErrorMessage(error, 'Could not load the dashboard')}</Alert>
+        <Alert severity="error">
+          {getErrorMessage(error, "Could not load the dashboard")}
+        </Alert>
       </Box>
     );
   }
@@ -494,11 +716,14 @@ export default function DashboardOverviewPage() {
   // My work queue — full details of tasks assigned to me (who assigned, due, priority).
   if (o.tasks?.assignedToMe?.length > 0) {
     lowerCards.push(
-      <SectionCard key="my-tasks" label={`My tasks — assigned to me (${o.tasks.myOpen})`}>
+      <SectionCard
+        key="my-tasks"
+        label={`My tasks — assigned to me (${o.tasks.myOpen})`}
+      >
         {o.tasks.assignedToMe.map((t) => (
           <TaskRow key={t._id} task={t} onClick={() => openTask(t)} />
         ))}
-      </SectionCard>
+      </SectionCard>,
     );
   }
 
@@ -511,21 +736,36 @@ export default function DashboardOverviewPage() {
         label={`My team (${team.size}) — open tasks (${team.open})`}
       >
         {team.tasks.length === 0 ? (
-          <Typography variant="body2" color="text.secondary">Your team has no open tasks.</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Your team has no open tasks.
+          </Typography>
         ) : (
           team.tasks.map((t) => (
-            <TaskRow key={t._id} task={t} onClick={() => openTask(t)} showAssignees />
+            <TaskRow
+              key={t._id}
+              task={t}
+              onClick={() => openTask(t)}
+              showAssignees
+            />
           ))
         )}
-      </SectionCard>
+      </SectionCard>,
     );
     if (team.delegatedByMe.length > 0) {
       lowerCards.push(
-        <SectionCard key="delegated" label={`Delegated by me (${team.delegatedByMe.length})`}>
+        <SectionCard
+          key="delegated"
+          label={`Delegated by me (${team.delegatedByMe.length})`}
+        >
           {team.delegatedByMe.map((t) => (
-            <TaskRow key={t._id} task={t} onClick={() => openTask(t)} showAssignees />
+            <TaskRow
+              key={t._id}
+              task={t}
+              onClick={() => openTask(t)}
+              showAssignees
+            />
           ))}
-        </SectionCard>
+        </SectionCard>,
       );
     }
   }
@@ -542,14 +782,14 @@ export default function DashboardOverviewPage() {
             <Box
               key={r._id}
               sx={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
                 gap: 2,
                 py: 1,
-                borderBottom: '1px solid',
-                borderColor: 'divider',
-                '&:last-of-type': { borderBottom: 'none' },
+                borderBottom: "1px solid",
+                borderColor: "divider",
+                "&:last-of-type": { borderBottom: "none" },
               }}
             >
               <Box sx={{ minWidth: 0 }}>
@@ -560,13 +800,16 @@ export default function DashboardOverviewPage() {
                   {formatDate(r.dueDate)}
                 </Typography>
               </Box>
-              <Typography variant="body2" sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>
+              <Typography
+                variant="body2"
+                sx={{ fontWeight: 700, whiteSpace: "nowrap" }}
+              >
                 {formatINR(r.amount)}
               </Typography>
             </Box>
           ))
         )}
-      </SectionCard>
+      </SectionCard>,
     );
   }
 
@@ -580,11 +823,22 @@ export default function DashboardOverviewPage() {
         ) : (
           topProjects.map((p) => (
             <Box key={p._id} sx={{ py: 1 }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, mb: 0.75 }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 2,
+                  mb: 0.75,
+                }}
+              >
                 <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
                   {p.name}
                 </Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ whiteSpace: "nowrap" }}
+                >
                   {Math.round(p.progress || 0)}%
                 </Typography>
               </Box>
@@ -596,7 +850,7 @@ export default function DashboardOverviewPage() {
             </Box>
           ))
         )}
-      </SectionCard>
+      </SectionCard>,
     );
   }
 
@@ -609,10 +863,10 @@ export default function DashboardOverviewPage() {
           severity="info"
           sx={{
             mb: 3,
-            bgcolor: '#EFF6FF',
-            color: '#1E40AF',
-            border: '1px solid #DBEAFE',
-            '& .MuiAlert-icon': { color: '#2563EB' },
+            bgcolor: "#EFF6FF",
+            color: "#1E40AF",
+            border: "1px solid #DBEAFE",
+            "& .MuiAlert-icon": { color: "#2563EB" },
           }}
         >
           {"You haven't submitted today's evening report yet."}
@@ -621,7 +875,9 @@ export default function DashboardOverviewPage() {
 
       {cards.length === 0 ? (
         <Alert severity="info">
-          {"You don't have access to any dashboard sections yet. Ask an admin to grant you module permissions."}
+          {
+            "You don't have access to any dashboard sections yet. Ask an admin to grant you module permissions."
+          }
         </Alert>
       ) : (
         <Grid container spacing={2.5} sx={{ mb: 4 }}>
@@ -636,7 +892,11 @@ export default function DashboardOverviewPage() {
       <MyAssetsSection />
 
       {lowerCards.length > 0 && (
-        <Masonry columns={{ xs: 1, md: 2 }} spacing={2.5} sx={{ width: 'auto' }}>
+        <Masonry
+          columns={{ xs: 1, md: 2 }}
+          spacing={2.5}
+          sx={{ width: "auto" }}
+        >
           {lowerCards}
         </Masonry>
       )}

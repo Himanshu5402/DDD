@@ -3,7 +3,11 @@
 @tailwind utilities;
 
 :root {
-  --app-bg: #f7f8fa;
+  --app-bg: #f8f9fc;
+  --border-light: #e5e7eb;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
 
 html,
@@ -15,22 +19,68 @@ body,
 body {
   margin: 0;
   background-color: var(--app-bg);
-  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  background-image:
+    radial-gradient(at 20% 80%, rgba(79, 70, 229, 0.04) 0px, transparent 50%),
+    radial-gradient(at 80% 20%, rgba(14, 165, 233, 0.04) 0px, transparent 50%);
+  font-family:
+    "Inter",
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Subtle scrollbars to match the minimalist theme */
+/* Smooth scrollbars */
 *::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
+
 *::-webkit-scrollbar-track {
   background: transparent;
 }
+
 *::-webkit-scrollbar-thumb {
-  background: #e2e8f0;
+  background: linear-gradient(135deg, #e5e7eb 0%, #d1d5db 100%);
   border-radius: 8px;
+  transition: background 0.2s ease;
 }
+
 *::-webkit-scrollbar-thumb:hover {
-  background: #cbd5e1;
+  background: linear-gradient(135deg, #d1d5db 0%, #9ca3af 100%);
+}
+
+/* Smooth transitions */
+* {
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+/* Focus states */
+*:focus-visible {
+  outline: 2px solid #4f46e5;
+  outline-offset: 2px;
+}
+
+/* Selection styling */
+::selection {
+  background-color: rgba(79, 70, 229, 0.2);
+  color: inherit;
+}
+
+/* Input styles */
+input,
+textarea,
+select {
+  font-family: inherit;
+}
+
+/* Remove default input styling */
+input[type="search"]::-webkit-search-cancel-button {
+  -webkit-appearance: none;
 }
