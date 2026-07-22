@@ -38,4 +38,20 @@ export const employeeAnalyticsApi = {
     const { data } = await api.post('/employee-analytics/hrms-sync');
     return data; // { data: { synced, status }, message }
   },
+
+  // --- HRMS employee write-through (owner acts on HRMS master data) ----------
+  // Bodies use the HRMS employee shape: { name, dept, role, email, phone,
+  // join, dob, salary, gender, access, managerId } — see the server validation.
+  async createHrmsEmployee(payload) {
+    const { data } = await api.post('/employee-analytics/employees', payload);
+    return data; // { data: { user, employee }, message }
+  },
+  async updateHrmsEmployee(empId, payload) {
+    const { data } = await api.put(`/employee-analytics/employees/${encodeURIComponent(empId)}`, payload);
+    return data; // { data: { user, employee }, message }
+  },
+  async toggleHrmsEmployee(empId) {
+    const { data } = await api.patch(`/employee-analytics/employees/${encodeURIComponent(empId)}/toggle-status`);
+    return data; // { data: { user, employee }, message }
+  },
 };

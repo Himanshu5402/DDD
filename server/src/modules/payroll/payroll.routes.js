@@ -10,6 +10,7 @@ import {
   listPeriodsSchema,
   createPeriodSchema,
   updatePeriodSchema,
+  runHrmsPayrollSchema,
 } from './payroll.validation.js';
 
 const router = Router();
@@ -43,6 +44,20 @@ router.post(
 );
 
 router.get('/summary', authorize(M, ACTIONS.READ), c.summary);
+
+// Write-through: run payroll for a month in the HRMS (mirror refreshes via echo).
+router.post(
+  '/hrms/run',
+  authorize(M, ACTIONS.CREATE),
+  validate({ body: runHrmsPayrollSchema }),
+  auditAction({
+    action: ACTIONS.CREATE,
+    module: M,
+    entityType: 'PayrollPeriod',
+    describe: (req) => `Ran HRMS payroll for ${req.body.month}`,
+  }),
+  c.runHrms
+);
 
 router.patch(
   '/periods/:id',

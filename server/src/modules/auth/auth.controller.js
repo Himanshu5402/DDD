@@ -26,10 +26,8 @@ function clearRefreshCookie(res) {
 
 const readRefreshToken = (req) => req.body?.refreshToken || req.cookies?.[REFRESH_COOKIE];
 
-export const register = asyncHandler(async (req, res) => {
-  const user = await authService.register(req.body);
-  return ApiResponse.created(res, { user }, 'Registration successful');
-});
+// Registration is disabled (owner-only console) — the route answers 410 Gone
+// directly in auth.routes.js.
 
 export const login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;

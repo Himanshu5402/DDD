@@ -11,7 +11,6 @@ import {
   createUserSchema,
   updateUserSchema,
   setStatusSchema,
-  assignRolesSchema,
   resetPasswordSchema,
 } from './users.validation.js';
 
@@ -59,13 +58,7 @@ router.patch(
   c.setStatus
 );
 
-router.patch(
-  '/:id/roles',
-  authorize(M, ACTIONS.UPDATE),
-  validate({ params: idParamSchema, body: assignRolesSchema }),
-  auditAction({ action: ACTIONS.UPDATE, module: M, entityType: 'User', entityId: (req) => req.params.id, describe: () => 'Reassigned roles' }),
-  c.assignRoles
-);
+// PATCH /:id/roles removed — RBAC gone (owner-only console).
 
 router.post(
   '/:id/reset-password',

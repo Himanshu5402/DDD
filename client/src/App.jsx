@@ -4,7 +4,6 @@ import { Box } from "@mui/material";
 import { PageSkeleton } from "./components/ui/SkeletonLoader.jsx";
 import AppLayout from "./components/layout/AppLayout.jsx";
 import ProtectedRoute from "./auth/ProtectedRoute.jsx";
-import RequirePermission from "./auth/RequirePermission.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
 
 // Route-level code-splitting: each module page loads on demand.
@@ -36,7 +35,6 @@ const EveningReportPage = lazy(
 );
 const AiHubPage = lazy(() => import("./pages/ai/AiHubPage.jsx"));
 const UsersPage = lazy(() => import("./pages/UsersPage.jsx"));
-const RolesPage = lazy(() => import("./pages/RolesPage.jsx"));
 const AuditPage = lazy(() => import("./pages/AuditPage.jsx"));
 const CustomFieldsPage = lazy(() => import("./pages/CustomFieldsPage.jsx"));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage.jsx"));
@@ -46,15 +44,6 @@ function PageLoader() {
     <Box sx={{ p: { xs: 2, sm: 3, md: 4 } }}>
       <PageSkeleton />
     </Box>
-  );
-}
-
-/** Shorthand: permission-gated, lazy-loaded module route. */
-function guarded(module, Element) {
-  return (
-    <RequirePermission module={module} action="read">
-      <Element />
-    </RequirePermission>
   );
 }
 
@@ -70,43 +59,24 @@ export default function App() {
             <Route index element={<DashboardOverviewPage />} />
             {/* Org directory — visible to every signed-in employee. */}
             <Route path="organization" element={<OrgChartPage />} />
-            <Route path="tasks" element={guarded("tasks", TasksBoardPage)} />
-            <Route path="goals" element={guarded("goals", GoalsPage)} />
-            <Route path="rrrmas" element={guarded("rrrmas", RrrmasPage)} />
-            <Route
-              path="projects"
-              element={guarded("rrrmas", ProjectsOverviewPage)}
-            />
-            <Route
-              path="products"
-              element={guarded("products", ProductsPage)}
-            />
-            <Route path="finance" element={guarded("finance", FinancePage)} />
-            <Route
-              path="maintenance"
-              element={guarded("maintenance", MaintenancePage)}
-            />
-            <Route
-              path="employees"
-              element={guarded("employee_analytics", EmployeeAnalyticsPage)}
-            />
-            <Route path="leave" element={guarded("leave", LeavePage)} />
-            <Route
-              path="recruitment"
-              element={guarded("recruitment", RecruitmentPage)}
-            />
-            <Route path="payroll" element={guarded("payroll", PayrollPage)} />
-            <Route
-              path="reporting"
-              element={guarded("evening_reporting", EveningReportPage)}
-            />
-            <Route path="ai" element={guarded("ai", AiHubPage)} />
-            <Route path="admin/users" element={guarded("users", UsersPage)} />
-            <Route path="admin/roles" element={guarded("roles", RolesPage)} />
-            <Route path="admin/audit" element={guarded("audit", AuditPage)} />
+            <Route path="tasks" element={<TasksBoardPage />} />
+            <Route path="goals" element={<GoalsPage />} />
+            <Route path="rrrmas" element={<RrrmasPage />} />
+            <Route path="projects" element={<ProjectsOverviewPage />} />
+            <Route path="products" element={<ProductsPage />} />
+            <Route path="finance" element={<FinancePage />} />
+            <Route path="maintenance" element={<MaintenancePage />} />
+            <Route path="employees" element={<EmployeeAnalyticsPage />} />
+            <Route path="leave" element={<LeavePage />} />
+            <Route path="recruitment" element={<RecruitmentPage />} />
+            <Route path="payroll" element={<PayrollPage />} />
+            <Route path="reporting" element={<EveningReportPage />} />
+            <Route path="ai" element={<AiHubPage />} />
+            <Route path="admin/users" element={<UsersPage />} />
+            <Route path="admin/audit" element={<AuditPage />} />
             <Route
               path="admin/custom-fields"
-              element={guarded("custom_fields", CustomFieldsPage)}
+              element={<CustomFieldsPage />}
             />
             <Route path="*" element={<NotFoundPage />} />
           </Route>

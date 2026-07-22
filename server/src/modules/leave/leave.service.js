@@ -3,6 +3,7 @@ import LeaveRequest, { LEAVE_TYPES } from '../../models/leaveRequest.model.js';
 import LeaveBalance from '../../models/leaveBalance.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { parsePagination } from '../../utils/pagination.js';
+import * as hrms from '../../services/integrations/hrms.client.js';
 
 const REQUEST_POPULATE = [
   { path: 'user', select: 'name email avatar' },
@@ -72,11 +73,26 @@ export async function updateRequest(id, data) {
   return LeaveRequest.findById(request._id).populate(REQUEST_POPULATE);
 }
 
-/** Approve or reject a request, stamping the deciding user as approver. */
+/**
+ * Approve or reject a request, stamping the deciding user as approver.
+ *
+ * HRMS-mirrored rows write through: the decision is forwarded to the HRMS
+ * (the source of truth), and the mirror is only updated once it accepts —
+ * the employee sees the outcome in the HRMS portal, and the echo event the
+ * HRMS emits converges the mirror again (idempotent). If the HRMS is
+ * unreachable the 502 from hrms.client propagates and nothing is mutated.
+ */
 export async function decideRequest(id, decision, user) {
   const request = await LeaveRequest.findById(id);
   if (!request) throw ApiError.notFound('Leave request not found');
-  if (request.source === 'hrms') throw ApiError.conflict('Managed by HRMS — read only');
+
+  if (request.source === 'hrms') {
+    if (!request.externalId) {
+      throw ApiError.conflict('HRMS leave has no external reference — run a sync first');
+    }
+    const action = decision === 'approved' ? 'approve' : 'reject';
+    await hrms.patch(`/integration/leaves/${encodeURIComponent(request.externalId)}/${action}`);
+  }
 
   request.status = decision;
   request.approver = user._id;

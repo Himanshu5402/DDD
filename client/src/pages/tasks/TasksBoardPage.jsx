@@ -16,9 +16,11 @@ import { useAuth } from '../../auth/AuthContext.jsx';
 
 export default function TasksBoardPage() {
   const qc = useQueryClient();
-  const { hasPermission, user } = useAuth();
-  const canCreate = hasPermission('tasks', 'create');
-  const canMove = hasPermission('tasks', 'update');
+  const { user } = useAuth();
+  // Owner-only console: RBAC removed — full access for every signed-in user.
+  const perms = { create: true, read: true, update: true, delete: true };
+  const canCreate = perms.create;
+  const canMove = perms.update;
 
   // Jira-style: even without tasks:update, users may move tasks they
   // participate in (assignee/watcher/creator). The server enforces the same rule.

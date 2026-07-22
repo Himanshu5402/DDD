@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import PayrollPeriod from '../../models/payrollPeriod.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { parsePagination } from '../../utils/pagination.js';
+import * as hrms from '../../services/integrations/hrms.client.js';
 
 const LIST_POPULATE = [{ path: 'company', select: 'name code' }];
 
@@ -81,6 +82,33 @@ export async function deletePeriod(id) {
   if (period.source === 'hrms') throw ApiError.conflict('Managed by HRMS — read only');
   await period.deleteOne();
   return { success: true };
+}
+
+// HRMS run status → DDD PayrollPeriod status (contract enum map).
+const HRMS_RUN_STATUS = { Pending: 'draft', Processing: 'processing', Paid: 'paid' };
+
+/**
+ * Owner "Run payroll" — write-through to the HRMS, which marks every active
+ * employee paid for the month and echoes a `payroll.changed` event carrying the
+ * fresh aggregates (that echo upserts the full mirror row). The status we get
+ * back is converged onto an existing mirror row immediately; on HRMS failure
+ * the ApiError from hrms.client propagates and nothing is mutated.
+ */
+export async function runPayrollInHrms(month) {
+  const res = await hrms.post('/integration/payroll/run', { month });
+  const run = res?.data ?? null;
+
+  if (run?.month) {
+    // The run response has no aggregates — update only the status here and let
+    // the echo event (or the next sync) refresh cost/headcount/byDepartment.
+    await PayrollPeriod.updateOne(
+      { month: run.month, source: 'hrms' },
+      { $set: { status: HRMS_RUN_STATUS[run.status] || 'processing' } }
+    );
+  }
+
+  const period = await PayrollPeriod.findOne({ month, source: 'hrms' }).populate(LIST_POPULATE);
+  return { run, period };
 }
 
 /**

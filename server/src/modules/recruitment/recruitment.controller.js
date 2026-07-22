@@ -16,9 +16,9 @@ export const listPositions = asyncHandler(async (req, res) => {
 });
 
 export const createPosition = asyncHandler(async (req, res) => {
-  const position = await service.createPosition(req.body, req.user);
+  const position = await service.createPosition(req.body);
   emitChange('position_created', position._id);
-  return ApiResponse.created(res, { position }, 'Position created');
+  return ApiResponse.created(res, { position }, 'Opening created in HRMS');
 });
 
 export const updatePosition = asyncHandler(async (req, res) => {
@@ -41,9 +41,9 @@ export const listCandidates = asyncHandler(async (req, res) => {
 });
 
 export const createCandidate = asyncHandler(async (req, res) => {
-  const candidate = await service.createCandidate(req.body, req.user);
+  const candidate = await service.createCandidate(req.body);
   emitChange('candidate_created', candidate._id);
-  return ApiResponse.created(res, { candidate }, 'Candidate created');
+  return ApiResponse.created(res, { candidate }, 'Candidate created in HRMS');
 });
 
 export const updateCandidate = asyncHandler(async (req, res) => {

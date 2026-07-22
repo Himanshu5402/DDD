@@ -28,4 +28,10 @@ export const payrollApi = {
   async remove(id) {
     await api.delete(`/payroll/periods/${id}`);
   },
+  // Write-through: run the payroll for a month in the HRMS (mirror refreshes
+  // via the echo event / next sync).
+  async runHrms(month) {
+    const { data } = await api.post('/payroll/hrms/run', { month });
+    return data; // { data: { run, period }, message }
+  },
 };

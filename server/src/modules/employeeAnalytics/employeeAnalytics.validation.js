@@ -50,6 +50,36 @@ export const summarySchema = z.object({
   to: z.coerce.date().optional(),
 });
 
+// --- HRMS employee write-through ----------------------------------------------
+// Bodies travel to the HRMS /integration/employees* endpoints as-is, so the
+// field names/enums are the HRMS employee shape (empId is assigned by the HRMS).
+
+const ymdString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
+
+export const empIdParamSchema = z.object({
+  empId: z.string().trim().min(1).max(50),
+});
+
+const hrmsEmployeeFields = {
+  name: z.string().trim().min(1).max(200),
+  dept: z.string().trim().min(1).max(200),
+  role: z.string().trim().min(1).max(200),
+  email: z.string().trim().email().max(300),
+  phone: z.string().trim().max(50).optional(),
+  join: ymdString.optional(),
+  dob: ymdString.optional(),
+  salary: z.number().min(0).optional(),
+  gender: z.enum(['M', 'F', 'O']).optional(),
+  status: z.enum(['Active', 'Inactive', 'Exited']).optional(),
+  access: z
+    .enum(['HR Admin', 'HR Representative', 'Finance Representative', 'Employee'])
+    .optional(),
+  managerId: z.string().trim().max(50).optional(),
+};
+
+export const createHrmsEmployeeSchema = z.object(hrmsEmployeeFields);
+export const updateHrmsEmployeeSchema = z.object(hrmsEmployeeFields).partial();
+
 export const teamSchema = z.object({
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),

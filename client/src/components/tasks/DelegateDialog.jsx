@@ -20,11 +20,13 @@ function initialsOf(name = '') {
  */
 export default function DelegateDialog({ task, open, onClose, onDelegated }) {
   const qc = useQueryClient();
-  const { hasPermission, user } = useAuth();
+  const { user } = useAuth();
   const [selected, setSelected] = useState([]);
   const [note, setNote] = useState('');
 
-  const canSeeAllUsers = hasPermission('users', 'read');
+  // Owner-only console: RBAC removed — full access for every signed-in user.
+  const perms = { create: true, read: true, update: true, delete: true };
+  const canSeeAllUsers = perms.read;
 
   const teamQuery = useQuery({
     queryKey: ['my-team', user?._id],

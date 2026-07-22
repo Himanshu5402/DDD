@@ -43,7 +43,6 @@ import {
 } from '../../api/products.api.js';
 import { getErrorMessage } from '../../lib/axios.js';
 import { getSocket, connectSocket } from '../../lib/socket.js';
-import { useAuth } from '../../auth/AuthContext.jsx';
 
 const STATUS_COLOR = { development: 'warning', active: 'success', deprecated: 'default' };
 const ROADMAP_STATUS_COLOR = { planned: 'default', in_progress: 'warning', released: 'success' };
@@ -79,10 +78,11 @@ const EMPTY_FORM = {
 
 export default function ProductsPage() {
   const qc = useQueryClient();
-  const { hasPermission } = useAuth();
-  const canCreate = hasPermission('products', 'create');
-  const canUpdate = hasPermission('products', 'update');
-  const canDelete = hasPermission('products', 'delete');
+  // Owner-only console: RBAC removed — full access for every signed-in user.
+  const perms = { create: true, read: true, update: true, delete: true };
+  const canCreate = perms.create;
+  const canUpdate = perms.update;
+  const canDelete = perms.delete;
 
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');

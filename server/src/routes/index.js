@@ -6,7 +6,6 @@ import { isMemoryDb } from '../config/database.js';
 
 import authRoutes from '../modules/auth/auth.routes.js';
 import usersRoutes from '../modules/users/users.routes.js';
-import rolesRoutes from '../modules/roles/roles.routes.js';
 import auditRoutes from '../modules/audit/audit.routes.js';
 import customFieldsRoutes from '../modules/customFields/customFields.routes.js';
 import companiesRoutes from '../modules/companies/companies.routes.js';
@@ -26,6 +25,7 @@ import reportingRoutes from '../modules/reporting/reporting.routes.js';
 import dashboardRoutes from '../modules/dashboard/dashboard.routes.js';
 import notificationsRoutes from '../modules/notifications/notifications.routes.js';
 import pepsiRoutes from '../modules/integrations/pepsi.routes.js';
+import hrmsRoutes from '../modules/integrations/hrms.routes.js';
 
 const router = Router();
 
@@ -56,7 +56,8 @@ router.get('/health', (_req, res) => {
 // Foundation modules
 router.use('/auth', authRoutes);
 router.use('/users', usersRoutes);
-router.use('/roles', rolesRoutes);
+// /roles unmounted — RBAC removed (owner-only console). Role model + seeds
+// stay on disk so notifications keyed on role slugs keep working.
 router.use('/audit', auditRoutes);
 router.use('/custom-fields', customFieldsRoutes);
 router.use('/companies', companiesRoutes);
@@ -78,5 +79,6 @@ router.use('/reports', reportingRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/notifications', notificationsRoutes);
 router.use('/integrations/pepsi', pepsiRoutes);
+router.use('/integrations/hrms', hrmsRoutes);
 
 export default router;

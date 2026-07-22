@@ -1,6 +1,12 @@
 import asyncHandler from '../../utils/asyncHandler.js';
 import ApiResponse from '../../utils/ApiResponse.js';
+import { broadcast } from '../../socket/index.js';
 import * as service from './users.service.js';
+
+/** Notify connected clients that the user directory changed so they can refetch. */
+function emitChange(type, id) {
+  broadcast('users:changed', { type, id: String(id), at: Date.now() });
+}
 
 export const list = asyncHandler(async (req, res) => {
   const { items, page, limit, total } = await service.listUsers(req.query);
@@ -26,24 +32,21 @@ export const getOne = asyncHandler(async (req, res) => {
 
 export const create = asyncHandler(async (req, res) => {
   const user = await service.createUser(req.body);
+  emitChange('created', user._id);
   return ApiResponse.created(res, { user }, 'User created');
 });
 
 export const update = asyncHandler(async (req, res) => {
   const actor = { id: req.user._id, isSuperAdmin: req.isSuperAdmin };
   const user = await service.updateUser(req.params.id, req.body, actor);
+  emitChange('updated', user._id);
   return ApiResponse.ok(res, { user }, 'User updated');
 });
 
 export const setStatus = asyncHandler(async (req, res) => {
   const user = await service.setUserStatus(req.params.id, req.body.isActive, req.user._id);
+  emitChange('updated', user._id);
   return ApiResponse.ok(res, { user }, 'User status updated');
-});
-
-export const assignRoles = asyncHandler(async (req, res) => {
-  const actor = { id: req.user._id, isSuperAdmin: req.isSuperAdmin };
-  const user = await service.assignRoles(req.params.id, req.body.roles, actor);
-  return ApiResponse.ok(res, { user }, 'Roles assigned');
 });
 
 export const resetPassword = asyncHandler(async (req, res) => {
@@ -53,5 +56,6 @@ export const resetPassword = asyncHandler(async (req, res) => {
 
 export const remove = asyncHandler(async (req, res) => {
   await service.deleteUser(req.params.id, req.user._id);
+  emitChange('deleted', req.params.id);
   return ApiResponse.ok(res, null, 'User deleted');
 });

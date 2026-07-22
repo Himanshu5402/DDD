@@ -31,6 +31,7 @@ import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import SyncIcon from '@mui/icons-material/Sync';
+import PowerSettingsNewIcon from '@mui/icons-material/PowerSettingsNew';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import {
   employeeAnalyticsApi,
@@ -38,6 +39,7 @@ import {
   ATTENDANCE_LABELS,
 } from '../../api/employeeAnalytics.api.js';
 import api, { getErrorMessage } from '../../lib/axios.js';
+import { hrmsErrorMessage } from '../../api/integrations.api.js';
 import { getSocket, connectSocket } from '../../lib/socket.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
 
@@ -91,12 +93,14 @@ function rangeToParams(range) {
 
 export default function EmployeeAnalyticsPage() {
   const qc = useQueryClient();
-  const { hasPermission, user: authUser } = useAuth();
+  const { user: authUser } = useAuth();
 
-  const canCreate = hasPermission('employee_analytics', 'create');
-  const canUpdate = hasPermission('employee_analytics', 'update');
-  const canDelete = hasPermission('employee_analytics', 'delete');
-  const canReadUsers = hasPermission('users', 'read');
+  // Owner-only console: RBAC removed — full access for every signed-in user.
+  const perms = { create: true, read: true, update: true, delete: true };
+  const canCreate = perms.create;
+  const canUpdate = perms.update;
+  const canDelete = perms.delete;
+  const canReadUsers = perms.read;
 
   const [tab, setTab] = useState('team');
 
@@ -130,12 +134,13 @@ export default function EmployeeAnalyticsPage() {
 
       <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ mb: 3, borderBottom: 1, borderColor: 'divider' }}>
         <Tab label="Team" value="team" />
+        <Tab label="Employees" value="employees" />
         <Tab label="Records" value="records" />
       </Tabs>
 
-      {tab === 'team' ? (
-        <TeamTab canSync={canUpdate} />
-      ) : (
+      {tab === 'team' && <TeamTab canSync={canUpdate} />}
+      {tab === 'employees' && <EmployeesTab users={users} usersQuery={usersQuery} />}
+      {tab === 'records' && (
         <RecordsTab
           users={users}
           canReadUsers={canReadUsers}
@@ -274,6 +279,363 @@ function TeamTab({ canSync }) {
         </Alert>
       </Snackbar>
     </Box>
+  );
+}
+
+// --- Employees (HRMS master data write-through) -------------------------------
+
+const EMPLOYMENT_STATUS_LABELS = {
+  active: 'Active',
+  on_notice: 'On notice',
+  on_leave: 'On leave',
+  suspended: 'Inactive',
+  exited: 'Exited',
+};
+const EMPLOYMENT_STATUS_COLOR = {
+  active: 'success',
+  on_notice: 'warning',
+  on_leave: 'info',
+  suspended: 'warning',
+  exited: 'default',
+};
+
+// Reverse maps: DDD mirror fields -> HRMS enums (for pre-filling the edit form).
+const ACCESS_FROM_LEVEL = { hr_admin: 'HR Admin', manager: 'HR Representative', employee: 'Employee' };
+const STATUS_FROM_EMPLOYMENT = { active: 'Active', suspended: 'Inactive', exited: 'Exited' };
+
+const HRMS_ACCESS_OPTIONS = ['HR Admin', 'HR Representative', 'Finance Representative', 'Employee'];
+const HRMS_STATUS_OPTIONS = ['Active', 'Inactive', 'Exited'];
+const HRMS_GENDER_OPTIONS = [
+  { value: 'M', label: 'Male' },
+  { value: 'F', label: 'Female' },
+  { value: 'O', label: 'Other' },
+];
+
+function isoDateInput(v) {
+  return v ? String(v).slice(0, 10) : '';
+}
+
+/**
+ * Employee directory with owner create/edit against the HRMS master data.
+ * Writes forward to the HRMS integration API; the mirror here refreshes via
+ * the echoed employee.* events (and the users-query invalidation below).
+ */
+function EmployeesTab({ users, usersQuery }) {
+  const qc = useQueryClient();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState(null); // DDD user doc (source hrms) or null
+  const [saveError, setSaveError] = useState('');
+  const [snack, setSnack] = useState(null); // { severity, message }
+
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['users'] });
+    qc.invalidateQueries({ queryKey: ['employee-analytics'] });
+  };
+
+  const saveMutation = useMutation({
+    mutationFn: (payload) =>
+      editing
+        ? employeeAnalyticsApi.updateHrmsEmployee(editing.hrmsId, payload)
+        : employeeAnalyticsApi.createHrmsEmployee(payload),
+    onSuccess: (res) => {
+      setDialogOpen(false);
+      setSaveError('');
+      refresh();
+      setSnack({ severity: 'success', message: res?.message || 'Synced to HRMS' });
+    },
+    onError: (err) => setSaveError(hrmsErrorMessage(err, 'Failed to save employee')),
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: (empId) => employeeAnalyticsApi.toggleHrmsEmployee(empId),
+    onSuccess: (res) => {
+      refresh();
+      setSnack({ severity: 'success', message: res?.message || 'Synced to HRMS' });
+    },
+    onError: (err) =>
+      setSnack({ severity: 'error', message: hrmsErrorMessage(err, 'Failed to toggle status') }),
+  });
+
+  const openCreate = () => { setEditing(null); setSaveError(''); setDialogOpen(true); };
+  const openEdit = (u) => { setEditing(u); setSaveError(''); setDialogOpen(true); };
+  const handleToggle = (u) => {
+    if (window.confirm(`Toggle ${u.name}'s Active/Inactive status in the HRMS?`)) {
+      toggleMutation.mutate(u.hrmsId);
+    }
+  };
+
+  const rows = users || [];
+
+  return (
+    <Box>
+      <Paper
+        elevation={0}
+        sx={{ p: 2.5, mb: 2.5, border: '1px solid', borderColor: 'divider', display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}
+      >
+        <Typography variant="body2" color="text.secondary">
+          People master data lives in the HRMS — changes here are written through and mirrored back.
+        </Typography>
+        <Box sx={{ flex: 1 }} />
+        <Chip label={`${rows.length} people`} />
+        <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
+          New employee
+        </Button>
+      </Paper>
+
+      {usersQuery.error && (
+        <Alert severity="error" sx={{ mb: 2 }}>{getErrorMessage(usersQuery.error, 'Failed to load employees')}</Alert>
+      )}
+
+      {usersQuery.isLoading ? (
+        <Box sx={{ display: 'grid', placeItems: 'center', py: 6 }}>
+          <CircularProgress />
+        </Box>
+      ) : (
+        <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', overflowX: 'auto' }}>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>Employee</TableCell>
+                <TableCell>Emp ID</TableCell>
+                <TableCell>Department</TableCell>
+                <TableCell>Designation</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell>Source</TableCell>
+                <TableCell align="right">Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {rows.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={7}>
+                    <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
+                      No employees yet — run the HRMS sync or add one.
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              )}
+              {rows.map((u) => {
+                const isHrms = u.source === 'hrms' && Boolean(u.hrmsId);
+                return (
+                  <TableRow key={u._id} hover>
+                    <TableCell>
+                      <Typography sx={{ fontWeight: 600, fontSize: 14 }}>{u.name}</Typography>
+                      <Typography variant="caption" color="text.secondary">{u.email || ''}</Typography>
+                    </TableCell>
+                    <TableCell sx={{ fontFamily: 'monospace' }}>{u.hrmsId || '—'}</TableCell>
+                    <TableCell>{u.department || '—'}</TableCell>
+                    <TableCell>{u.designation || '—'}</TableCell>
+                    <TableCell>
+                      <Chip
+                        label={EMPLOYMENT_STATUS_LABELS[u.employmentStatus] || u.employmentStatus || '—'}
+                        size="small"
+                        color={EMPLOYMENT_STATUS_COLOR[u.employmentStatus] || 'default'}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Chip label={isHrms ? 'HRMS' : 'Manual'} size="small" variant="outlined" />
+                    </TableCell>
+                    <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                      {isHrms ? (
+                        <>
+                          <Tooltip title="Edit in HRMS">
+                            <IconButton size="small" onClick={() => openEdit(u)}>
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Toggle Active/Inactive in HRMS">
+                            <span>
+                              <IconButton
+                                size="small"
+                                color={u.employmentStatus === 'active' ? 'warning' : 'success'}
+                                onClick={() => handleToggle(u)}
+                                disabled={toggleMutation.isPending}
+                              >
+                                <PowerSettingsNewIcon fontSize="small" />
+                              </IconButton>
+                            </span>
+                          </Tooltip>
+                        </>
+                      ) : (
+                        <Tooltip title="Managed in DDD (Users directory)">
+                          <Typography component="span" variant="caption" color="text.disabled">—</Typography>
+                        </Tooltip>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </Paper>
+      )}
+
+      <EmployeeDialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        onSave={(payload) => saveMutation.mutate(payload)}
+        record={editing}
+        users={users}
+        saving={saveMutation.isPending}
+        error={saveError}
+      />
+
+      <Snackbar
+        open={Boolean(snack)}
+        autoHideDuration={6000}
+        onClose={() => setSnack(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity={snack?.severity || 'info'} onClose={() => setSnack(null)} sx={{ width: '100%' }}>
+          {snack?.message || ''}
+        </Alert>
+      </Snackbar>
+    </Box>
+  );
+}
+
+function emptyEmployeeForm() {
+  return {
+    name: '',
+    email: '',
+    dept: '',
+    role: '',
+    phone: '',
+    join: '',
+    dob: '',
+    salary: '',
+    gender: '',
+    access: '',
+    managerId: '',
+    status: '',
+  };
+}
+
+/** DDD mirror user (source hrms) -> HRMS-shaped form values. */
+function employeeToForm(u, users) {
+  if (!u) return emptyEmployeeForm();
+  const mgrId = u.reportsTo?._id || u.reportsTo || null;
+  const manager = mgrId ? (users || []).find((x) => String(x._id) === String(mgrId)) : null;
+  return {
+    name: u.name || '',
+    email: u.email || '',
+    dept: u.department || '',
+    role: u.designation || '',
+    phone: u.phone || '',
+    join: isoDateInput(u.dateOfJoining),
+    dob: isoDateInput(u.dateOfBirth),
+    salary: '', // never mirrored into DDD — set only when changing it
+    gender: '', // not mirrored — set only when changing it
+    access: ACCESS_FROM_LEVEL[u.accessLevel] || '',
+    managerId: manager?.hrmsId || '',
+    status: STATUS_FROM_EMPLOYMENT[u.employmentStatus] || '',
+  };
+}
+
+/**
+ * Create / edit form for an HRMS employee (HRMS field shape: name, dept, role,
+ * email, phone, join, dob, salary, gender, access, managerId [+ status on edit]).
+ */
+function EmployeeDialog({ open, onClose, onSave, record, users, saving, error }) {
+  const [form, setForm] = useState(emptyEmployeeForm);
+
+  useEffect(() => {
+    if (open) setForm(employeeToForm(record, users));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, record]);
+
+  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  const managerOptions = (users || []).filter(
+    (u) => u.hrmsId && (!record || String(u._id) !== String(record._id))
+  );
+
+  const submit = () => {
+    const payload = {
+      name: form.name.trim(),
+      dept: form.dept.trim(),
+      role: form.role.trim(),
+      email: form.email.trim(),
+    };
+    if (form.phone.trim()) payload.phone = form.phone.trim();
+    if (form.join) payload.join = form.join;
+    if (form.dob) payload.dob = form.dob;
+    if (form.salary !== '' && !Number.isNaN(Number(form.salary))) payload.salary = Number(form.salary);
+    if (form.gender) payload.gender = form.gender;
+    if (form.access) payload.access = form.access;
+    if (form.managerId) payload.managerId = form.managerId;
+    if (record && form.status) payload.status = form.status;
+    onSave(payload);
+  };
+
+  const canSubmit =
+    form.name.trim().length > 0 &&
+    form.dept.trim().length > 0 &&
+    form.role.trim().length > 0 &&
+    /\S+@\S+\.\S+/.test(form.email.trim()) &&
+    !saving;
+
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+      <DialogTitle>{record ? `Edit employee ${record.hrmsId}` : 'New employee'}</DialogTitle>
+      <DialogContent>
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        <Stack spacing={2} sx={{ mt: 1 }}>
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+            <TextField label="Name" value={form.name} onChange={set('name')} required autoFocus sx={{ flex: 1, minWidth: 200 }} />
+            <TextField label="Email" value={form.email} onChange={set('email')} required sx={{ flex: 1, minWidth: 200 }} />
+          </Box>
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+            <TextField label="Department" value={form.dept} onChange={set('dept')} required sx={{ flex: 1, minWidth: 160 }} />
+            <TextField label="Designation" value={form.role} onChange={set('role')} required sx={{ flex: 1, minWidth: 160 }} />
+          </Box>
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+            <TextField label="Phone" value={form.phone} onChange={set('phone')} sx={{ flex: 1, minWidth: 160 }} />
+            <TextField label="Salary (monthly, INR)" value={form.salary} onChange={set('salary')} type="number" inputProps={{ min: 0 }} sx={{ flex: 1, minWidth: 160 }} />
+          </Box>
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+            <TextField label="Date of joining" type="date" value={form.join} onChange={set('join')} InputLabelProps={{ shrink: true }} sx={{ flex: 1, minWidth: 160 }} />
+            <TextField label="Date of birth" type="date" value={form.dob} onChange={set('dob')} InputLabelProps={{ shrink: true }} sx={{ flex: 1, minWidth: 160 }} />
+          </Box>
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+            <TextField select label="Gender" value={form.gender} onChange={set('gender')} sx={{ flex: 1, minWidth: 140 }}>
+              <MenuItem value=""><em>{record ? 'Keep unchanged' : 'Not set'}</em></MenuItem>
+              {HRMS_GENDER_OPTIONS.map((g) => (
+                <MenuItem key={g.value} value={g.value}>{g.label}</MenuItem>
+              ))}
+            </TextField>
+            <TextField select label="HRMS access" value={form.access} onChange={set('access')} sx={{ flex: 1, minWidth: 200 }}>
+              <MenuItem value=""><em>{record ? 'Keep unchanged' : 'Employee (default)'}</em></MenuItem>
+              {HRMS_ACCESS_OPTIONS.map((a) => (
+                <MenuItem key={a} value={a}>{a}</MenuItem>
+              ))}
+            </TextField>
+          </Box>
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+            <TextField select label="Manager" value={form.managerId} onChange={set('managerId')} sx={{ flex: 1, minWidth: 200 }}>
+              <MenuItem value=""><em>— None —</em></MenuItem>
+              {managerOptions.map((u) => (
+                <MenuItem key={u.hrmsId} value={u.hrmsId}>{u.name} ({u.hrmsId})</MenuItem>
+              ))}
+            </TextField>
+            {record && (
+              <TextField select label="Status" value={form.status} onChange={set('status')} sx={{ flex: 1, minWidth: 160 }}>
+                <MenuItem value=""><em>Keep unchanged</em></MenuItem>
+                {HRMS_STATUS_OPTIONS.map((s) => (
+                  <MenuItem key={s} value={s}>{s}</MenuItem>
+                ))}
+              </TextField>
+            )}
+          </Box>
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" onClick={submit} disabled={!canSubmit}>
+          {saving ? 'Saving…' : record ? 'Save to HRMS' : 'Create in HRMS'}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 

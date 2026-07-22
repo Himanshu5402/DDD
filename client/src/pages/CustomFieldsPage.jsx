@@ -25,14 +25,14 @@ import PageHeader from '../components/ui/PageHeader.jsx';
 import CustomFieldDialog from '../components/admin/CustomFieldDialog.jsx';
 import { customFieldsApi } from '../api/customFields.api.js';
 import { getErrorMessage } from '../lib/axios.js';
-import { useAuth } from '../auth/AuthContext.jsx';
 
 const ENTITY_TYPES = ['user', 'goal', 'task', 'rrrmas', 'product', 'finance', 'maintenance', 'asset'];
 
 export default function CustomFieldsPage() {
   const qc = useQueryClient();
-  const { hasPermission } = useAuth();
-  const canManage = hasPermission('custom_fields', 'create') || hasPermission('custom_fields', 'update');
+  // Owner-only console: RBAC removed — full access for every signed-in user.
+  const perms = { create: true, read: true, update: true, delete: true };
+  const canManage = perms.create || perms.update;
 
   const [entityType, setEntityType] = useState('user');
   const [editing, setEditing] = useState(null);
@@ -141,7 +141,7 @@ export default function CustomFieldsPage() {
                         <IconButton size="small" onClick={() => openEdit(f)}><EditIcon fontSize="small" /></IconButton>
                       </Tooltip>
                     )}
-                    {hasPermission('custom_fields', 'delete') && (
+                    {perms.delete && (
                       <Tooltip title="Delete">
                         <IconButton size="small" color="error" onClick={() => handleDelete(f)}><DeleteIcon fontSize="small" /></IconButton>
                       </Tooltip>

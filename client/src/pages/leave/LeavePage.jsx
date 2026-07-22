@@ -22,6 +22,7 @@ import {
   DialogContent,
   DialogActions,
   Stack,
+  Snackbar,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
@@ -39,8 +40,8 @@ import {
   LEAVE_REQUEST_STATUS_LABELS,
 } from '../../api/leave.api.js';
 import { getErrorMessage } from '../../lib/axios.js';
+import { hrmsErrorMessage } from '../../api/integrations.api.js';
 import { getSocket, connectSocket } from '../../lib/socket.js';
-import { useAuth } from '../../auth/AuthContext.jsx';
 
 const STATUS_COLOR = {
   pending: 'warning',
@@ -94,18 +95,14 @@ const EMPTY_FORM = {
 
 export default function LeavePage() {
   const qc = useQueryClient();
-  const { hasPermission } = useAuth();
-  const perms = {
-    read: hasPermission('leave', 'read'),
-    create: hasPermission('leave', 'create'),
-    update: hasPermission('leave', 'update'),
-    delete: hasPermission('leave', 'delete'),
-  };
+  // Owner-only console: RBAC removed — full access for every signed-in user.
+  const perms = { read: true, create: true, update: true, delete: true };
 
   const [status, setStatus] = useState('');
   const [leaveType, setLeaveType] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [snack, setSnack] = useState(null); // { severity, message }
 
   const filters = { status, leaveType };
 
@@ -148,14 +145,25 @@ export default function LeavePage() {
     onError: (err) => setSaveError(getErrorMessage(err, 'Failed to create leave request')),
   });
 
+  // Approve/reject — hrms rows forward the decision to the HRMS (write-through).
   const decideMutation = useMutation({
     mutationFn: ({ id, decision }) => leaveApi.decideRequest(id, decision),
-    onSuccess: invalidate,
+    onSuccess: (_res, { decision, isHrms }) => {
+      invalidate();
+      setSnack({
+        severity: 'success',
+        message: isHrms ? 'Synced to HRMS' : `Request ${decision}`,
+      });
+    },
+    onError: (err) =>
+      setSnack({ severity: 'error', message: hrmsErrorMessage(err, 'Failed to record the decision') }),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id) => leaveApi.removeRequest(id),
     onSuccess: invalidate,
+    onError: (err) =>
+      setSnack({ severity: 'error', message: getErrorMessage(err, 'Failed to delete the request') }),
   });
 
   const requests = requestsQuery.data?.data || [];
@@ -285,7 +293,9 @@ export default function LeavePage() {
                               <IconButton
                                 size="small"
                                 color="success"
-                                onClick={() => decideMutation.mutate({ id: r._id, decision: 'approved' })}
+                                onClick={() =>
+                                  decideMutation.mutate({ id: r._id, decision: 'approved', isHrms: r.source === 'hrms' })
+                                }
                                 disabled={decideMutation.isPending}
                               >
                                 <CheckIcon fontSize="small" />
@@ -297,7 +307,9 @@ export default function LeavePage() {
                               <IconButton
                                 size="small"
                                 color="error"
-                                onClick={() => decideMutation.mutate({ id: r._id, decision: 'rejected' })}
+                                onClick={() =>
+                                  decideMutation.mutate({ id: r._id, decision: 'rejected', isHrms: r.source === 'hrms' })
+                                }
                                 disabled={decideMutation.isPending}
                               >
                                 <CloseIcon fontSize="small" />
@@ -375,6 +387,17 @@ export default function LeavePage() {
         saving={saveMutation.isPending}
         error={saveError}
       />
+
+      <Snackbar
+        open={Boolean(snack)}
+        autoHideDuration={6000}
+        onClose={() => setSnack(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity={snack?.severity || 'info'} onClose={() => setSnack(null)} sx={{ width: '100%' }}>
+          {snack?.message || ''}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

@@ -2,7 +2,8 @@ import { Router } from 'express';
 import authenticate from '../../middleware/authenticate.middleware.js';
 import validate from '../../middleware/validate.middleware.js';
 import { authLimiter } from '../../middleware/rateLimit.middleware.js';
-import { registerSchema, loginSchema, refreshSchema } from './auth.validation.js';
+import { loginSchema, refreshSchema } from './auth.validation.js';
+import ApiError from '../../utils/ApiError.js';
 import * as controller from './auth.controller.js';
 
 const router = Router();
@@ -19,22 +20,17 @@ const router = Router();
  * /auth/register:
  *   post:
  *     tags: [Auth]
- *     summary: Register a new user (assigned the Employee role)
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [name, email, password]
- *             properties:
- *               name: { type: string }
- *               email: { type: string, format: email }
- *               password: { type: string, minLength: 8 }
+ *     summary: Disabled — DDD is an owner-only console (410 Gone)
  *     responses:
- *       201: { description: Registration successful }
+ *       410: { description: Registration is disabled }
  */
-router.post('/register', authLimiter, validate({ body: registerSchema }), controller.register);
+router.post('/register', authLimiter, (_req, _res, next) =>
+  next(
+    new ApiError(410, 'Registration is disabled — DDD is an owner-only console', {
+      code: 'REGISTRATION_DISABLED',
+    })
+  )
+);
 
 /**
  * @swagger

@@ -4,10 +4,12 @@ import { verifyAccessToken } from '../services/token.service.js';
 
 /**
  * Authenticates a request via `Authorization: Bearer <accessToken>`.
- * On success attaches:
- *   req.user           — the User document (roles + permissions populated)
- *   req.permissions    — Set<'module:action'> of effective permissions
- *   req.isSuperAdmin   — boolean
+ *
+ * DDD is an owner-only console (RBAC removed): anyone who can log in IS the
+ * owner. On success attaches:
+ *   req.user           — the User document (roles populated for legacy reads)
+ *   req.permissions    — Set(['*']) (wildcard — kept for shape compat)
+ *   req.isSuperAdmin   — always true
  */
 export default async function authenticate(req, _res, next) {
   try {
@@ -43,10 +45,10 @@ export default async function authenticate(req, _res, next) {
       }
     }
 
-    const { isSuperAdmin, permissions } = await user.getEffectivePermissions();
+    // Owner-only console: every authenticated user acts with full authority.
     req.user = user;
-    req.permissions = permissions;
-    req.isSuperAdmin = isSuperAdmin;
+    req.permissions = new Set(['*']);
+    req.isSuperAdmin = true;
     next();
   } catch (err) {
     next(err);

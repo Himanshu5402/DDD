@@ -88,16 +88,9 @@ export function AuthProvider({ children }) {
     clearSession();
   }, [clearSession]);
 
-  const hasPermission = useCallback(
-    (module, action) => {
-      if (isSuperAdmin) return true;
-      return (
-        permissions.has(`${module}:${action}`) ||
-        permissions.has(`${module}:manage`)
-      );
-    },
-    [isSuperAdmin, permissions],
-  );
+  // Owner-only console: RBAC removed — every authenticated user has full access.
+  // Signature kept for legacy call sites.
+  const hasPermission = useCallback((_module, _action) => true, []);
 
   const value = useMemo(
     () => ({

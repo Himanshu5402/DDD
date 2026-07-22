@@ -35,9 +35,11 @@ const statusSoft = (status) => ({
 
 export default function TaskDetailDrawer({ open, taskId, onClose, onEdit, onChanged }) {
   const qc = useQueryClient();
-  const { hasPermission, user } = useAuth();
-  const canEditAll = hasPermission('tasks', 'update');
-  const canDelete = hasPermission('tasks', 'delete');
+  const { user } = useAuth();
+  // Owner-only console: RBAC removed — full access for every signed-in user.
+  const perms = { create: true, read: true, update: true, delete: true };
+  const canEditAll = perms.update;
+  const canDelete = perms.delete;
 
   const [comment, setComment] = useState('');
   const [checklistText, setChecklistText] = useState('');

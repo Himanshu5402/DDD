@@ -39,7 +39,6 @@ import ClearIcon from '@mui/icons-material/Clear';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import api, { getErrorMessage } from '../../lib/axios.js';
 import { getSocket, connectSocket } from '../../lib/socket.js';
-import { useAuth } from '../../auth/AuthContext.jsx';
 import {
   contactsApi,
   renewalsApi,
@@ -585,14 +584,10 @@ const RESOURCES = [
 // --- Page -------------------------------------------------------------------
 export default function RrrmasPage() {
   const qc = useQueryClient();
-  const { hasPermission } = useAuth();
   const [tab, setTab] = useState(0);
 
-  const perms = {
-    create: hasPermission('rrrmas', 'create'),
-    update: hasPermission('rrrmas', 'update'),
-    delete: hasPermission('rrrmas', 'delete'),
-  };
+  // Owner-only console: RBAC removed — full access for every signed-in user.
+  const perms = { create: true, read: true, update: true, delete: true };
 
   // Option pools for reference selects (customer / owner / manager / assignee / team).
   const usersQuery = useQuery({

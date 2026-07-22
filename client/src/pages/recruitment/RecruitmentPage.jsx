@@ -24,6 +24,7 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Snackbar,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
@@ -34,8 +35,8 @@ import LocalOfferIcon from '@mui/icons-material/LocalOffer';
 import TimelapseIcon from '@mui/icons-material/Timelapse';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import { getErrorMessage } from '../../lib/axios.js';
+import { hrmsErrorMessage } from '../../api/integrations.api.js';
 import { getSocket, connectSocket } from '../../lib/socket.js';
-import { useAuth } from '../../auth/AuthContext.jsx';
 import { usersApi } from '../../api/users.api.js';
 import {
   positionsApi,
@@ -230,6 +231,10 @@ function PositionDialog({ open, onClose, onSave, saving, error, record, users })
       setLocalError('Title is required');
       return;
     }
+    if (!form.department.trim()) {
+      setLocalError('Department is required'); // the HRMS opening requires one
+      return;
+    }
     const payload = {
       title: form.title.trim(),
       department: form.department.trim(),
@@ -256,7 +261,7 @@ function PositionDialog({ open, onClose, onSave, saving, error, record, users })
           <Box sx={{ gridColumn: '1 / -1' }}>
             <TextField fullWidth size="small" label="Title" required value={form.title} onChange={(e) => set('title', e.target.value)} />
           </Box>
-          <TextField fullWidth size="small" label="Department" value={form.department} onChange={(e) => set('department', e.target.value)} />
+          <TextField fullWidth size="small" label="Department" required value={form.department} onChange={(e) => set('department', e.target.value)} />
           <TextField fullWidth size="small" type="number" label="Openings" inputProps={{ min: 0 }} value={form.openings} onChange={(e) => set('openings', e.target.value)} />
           <TextField fullWidth size="small" select label="Priority" value={form.priority} onChange={(e) => set('priority', e.target.value)}>
             {POSITION_PRIORITIES.map((p) => (
@@ -291,7 +296,7 @@ function PositionDialog({ open, onClose, onSave, saving, error, record, users })
 }
 
 // --- Positions panel ----------------------------------------------------------
-function PositionsPanel({ perms, users }) {
+function PositionsPanel({ perms, users, notify }) {
   const qc = useQueryClient();
   const [status, setStatus] = useState('');
   const [department, setDepartment] = useState('');
@@ -312,11 +317,18 @@ function PositionsPanel({ perms, users }) {
       setDialogOpen(false);
       setSaveError('');
       invalidate();
+      // Creates go to the HRMS first (which assigns the JOB-## code); edits on
+      // hrms rows write through to the HRMS opening.
+      if (!editing || editing.source === 'hrms') notify({ severity: 'success', message: 'Synced to HRMS' });
     },
-    onError: (err) => setSaveError(getErrorMessage(err, 'Failed to save')),
+    onError: (err) => setSaveError(hrmsErrorMessage(err, 'Failed to save')),
   });
 
-  const deleteMutation = useMutation({ mutationFn: (id) => positionsApi.remove(id), onSuccess: invalidate });
+  const deleteMutation = useMutation({
+    mutationFn: (id) => positionsApi.remove(id),
+    onSuccess: () => invalidate(),
+    onError: (err) => notify({ severity: 'error', message: hrmsErrorMessage(err, 'Failed to delete') }),
+  });
 
   const rows = query.data?.data || [];
   const total = query.data?.meta?.total;
@@ -333,7 +345,11 @@ function PositionsPanel({ perms, users }) {
   };
   const handleDelete = (row) => {
     if (window.confirm(`Delete position "${row.title}"? This cannot be undone.`)) {
-      deleteMutation.mutate(row._id, { onError: (err) => window.alert(getErrorMessage(err, 'Failed to delete')) });
+      deleteMutation.mutate(row._id, {
+        onSuccess: () => {
+          if (row.source === 'hrms') notify({ severity: 'success', message: 'Synced to HRMS' });
+        },
+      });
     }
   };
 
@@ -537,7 +553,7 @@ function CandidateDialog({ open, onClose, onSave, saving, error, record, positio
 }
 
 // --- Candidates panel ---------------------------------------------------------
-function CandidatesPanel({ perms, positions }) {
+function CandidatesPanel({ perms, positions, notify }) {
   const qc = useQueryClient();
   const [position, setPosition] = useState('');
   const [stage, setStage] = useState('');
@@ -558,16 +574,27 @@ function CandidatesPanel({ perms, positions }) {
       setDialogOpen(false);
       setSaveError('');
       invalidate();
+      // Creates go to the HRMS first (which assigns the CND-## code); edits on
+      // hrms rows write through to the HRMS candidate.
+      if (!editing || editing.sourceSystem === 'hrms') notify({ severity: 'success', message: 'Synced to HRMS' });
     },
-    onError: (err) => setSaveError(getErrorMessage(err, 'Failed to save')),
+    onError: (err) => setSaveError(hrmsErrorMessage(err, 'Failed to save')),
   });
 
-  const deleteMutation = useMutation({ mutationFn: (id) => candidatesApi.remove(id), onSuccess: invalidate });
+  const deleteMutation = useMutation({
+    mutationFn: (id) => candidatesApi.remove(id),
+    onSuccess: () => invalidate(),
+    onError: (err) => notify({ severity: 'error', message: hrmsErrorMessage(err, 'Failed to delete') }),
+  });
 
+  // Stage moves on hrms candidates forward to the HRMS pipeline (write-through).
   const stageMutation = useMutation({
     mutationFn: ({ id, nextStage }) => candidatesApi.moveStage(id, nextStage),
-    onSuccess: invalidate,
-    onError: (err) => window.alert(getErrorMessage(err, 'Failed to move stage')),
+    onSuccess: (_res, { isHrms }) => {
+      invalidate();
+      if (isHrms) notify({ severity: 'success', message: 'Synced to HRMS' });
+    },
+    onError: (err) => notify({ severity: 'error', message: hrmsErrorMessage(err, 'Failed to move stage') }),
   });
 
   const rows = query.data?.data || [];
@@ -585,7 +612,11 @@ function CandidatesPanel({ perms, positions }) {
   };
   const handleDelete = (row) => {
     if (window.confirm(`Delete candidate "${row.name}"? This cannot be undone.`)) {
-      deleteMutation.mutate(row._id, { onError: (err) => window.alert(getErrorMessage(err, 'Failed to delete')) });
+      deleteMutation.mutate(row._id, {
+        onSuccess: () => {
+          if (row.sourceSystem === 'hrms') notify({ severity: 'success', message: 'Synced to HRMS' });
+        },
+      });
     }
   };
 
@@ -649,7 +680,13 @@ function CandidatesPanel({ perms, positions }) {
                         size="small"
                         variant="standard"
                         value={row.stage}
-                        onChange={(e) => stageMutation.mutate({ id: row._id, nextStage: e.target.value })}
+                        onChange={(e) =>
+                          stageMutation.mutate({
+                            id: row._id,
+                            nextStage: e.target.value,
+                            isHrms: row.sourceSystem === 'hrms',
+                          })
+                        }
                         sx={{ minWidth: 130 }}
                       >
                         {CANDIDATE_STAGES.map((st) => (
@@ -706,15 +743,11 @@ const TABS = ['Positions', 'Candidates'];
 
 export default function RecruitmentPage() {
   const qc = useQueryClient();
-  const { hasPermission } = useAuth();
   const [tab, setTab] = useState(0);
+  const [snack, setSnack] = useState(null); // { severity, message }
 
-  const perms = {
-    read: hasPermission('recruitment', 'read'),
-    create: hasPermission('recruitment', 'create'),
-    update: hasPermission('recruitment', 'update'),
-    delete: hasPermission('recruitment', 'delete'),
-  };
+  // Owner-only console: RBAC removed — full access for every signed-in user.
+  const perms = { read: true, create: true, update: true, delete: true };
 
   // Position pool for candidate filters + dialog select.
   const positionsRefQuery = useQuery({
@@ -758,8 +791,19 @@ export default function RecruitmentPage() {
         </Tabs>
       </Paper>
 
-      {tab === 0 && <PositionsPanel perms={perms} users={users} />}
-      {tab === 1 && <CandidatesPanel perms={perms} positions={positions} />}
+      {tab === 0 && <PositionsPanel perms={perms} users={users} notify={setSnack} />}
+      {tab === 1 && <CandidatesPanel perms={perms} positions={positions} notify={setSnack} />}
+
+      <Snackbar
+        open={Boolean(snack)}
+        autoHideDuration={6000}
+        onClose={() => setSnack(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity={snack?.severity || 'info'} onClose={() => setSnack(null)} sx={{ width: '100%' }}>
+          {snack?.message || ''}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

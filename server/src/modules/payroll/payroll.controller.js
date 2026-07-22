@@ -35,3 +35,9 @@ export const summary = asyncHandler(async (req, res) => {
   const data = await service.getSummary();
   return ApiResponse.ok(res, data, 'Payroll summary');
 });
+
+export const runHrms = asyncHandler(async (req, res) => {
+  const data = await service.runPayrollInHrms(req.body.month);
+  emitChange('hrms_run', data.period?._id ?? req.body.month);
+  return ApiResponse.ok(res, data, `Payroll run in HRMS for ${req.body.month}`);
+});

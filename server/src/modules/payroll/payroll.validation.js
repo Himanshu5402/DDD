@@ -33,6 +33,11 @@ export const createPeriodSchema = z.object({
   reimbursementsAmount: z.number().min(0).optional(),
 });
 
+/** POST /payroll/hrms/run — owner-triggered payroll run in the HRMS. */
+export const runHrmsPayrollSchema = z.object({
+  month: monthStr,
+});
+
 export const updatePeriodSchema = z.object({
   status: z.enum(PAYROLL_STATUSES).optional(),
   currency: z.string().trim().max(10).optional(),

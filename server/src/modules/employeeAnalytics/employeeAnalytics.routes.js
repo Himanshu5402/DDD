@@ -12,6 +12,9 @@ import {
   updateRecordSchema,
   summarySchema,
   teamSchema,
+  empIdParamSchema,
+  createHrmsEmployeeSchema,
+  updateHrmsEmployeeSchema,
 } from './employeeAnalytics.validation.js';
 
 const router = Router();
@@ -78,6 +81,49 @@ router.post(
     describe: () => 'Triggered HRMS sync',
   }),
   c.hrmsSync
+);
+
+// --- HRMS employee write-through (owner acts on HRMS master data) -------------
+
+router.post(
+  '/employees',
+  authorize(M, ACTIONS.CREATE),
+  validate({ body: createHrmsEmployeeSchema }),
+  auditAction({
+    action: ACTIONS.CREATE,
+    module: M,
+    entityType: 'User',
+    describe: (req) => `Created HRMS employee ${req.body.name}`,
+  }),
+  c.createHrmsEmployee
+);
+
+router.put(
+  '/employees/:empId',
+  authorize(M, ACTIONS.UPDATE),
+  validate({ params: empIdParamSchema, body: updateHrmsEmployeeSchema }),
+  auditAction({
+    action: ACTIONS.UPDATE,
+    module: M,
+    entityType: 'User',
+    entityId: (req) => req.params.empId,
+    describe: (req) => `Updated HRMS employee ${req.params.empId}`,
+  }),
+  c.updateHrmsEmployee
+);
+
+router.patch(
+  '/employees/:empId/toggle-status',
+  authorize(M, ACTIONS.UPDATE),
+  validate({ params: empIdParamSchema }),
+  auditAction({
+    action: ACTIONS.UPDATE,
+    module: M,
+    entityType: 'User',
+    entityId: (req) => req.params.empId,
+    describe: (req) => `Toggled HRMS employee ${req.params.empId} status`,
+  }),
+  c.toggleHrmsEmployee
 );
 
 export default router;

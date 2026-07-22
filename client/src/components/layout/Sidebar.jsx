@@ -10,7 +10,7 @@ import {
   Divider,
 } from '@mui/material';
 import { NAV_SECTIONS } from '../../constants/navigation.js';
-import { useAuth } from '../../auth/AuthContext.jsx';
+import HrmsSyncWidget from './HrmsSyncWidget.jsx';
 
 export const DRAWER_WIDTH = 264;
 
@@ -43,8 +43,6 @@ function BrandMark() {
 }
 
 export default function Sidebar() {
-  const { hasPermission } = useAuth();
-
   return (
     <Box
       sx={{
@@ -61,7 +59,7 @@ export default function Sidebar() {
 
       <Box sx={{ overflowY: 'auto', flex: 1, py: 1.5 }}>
         {NAV_SECTIONS.map((section) => {
-          const items = section.items.filter((i) => !i.module || hasPermission(i.module, i.action || 'read'));
+          const items = section.items;
           if (!items.length) return null;
           return (
             <Box key={section.heading} sx={{ mb: 1.5 }}>
@@ -124,6 +122,8 @@ export default function Sidebar() {
           );
         })}
       </Box>
+
+      <HrmsSyncWidget />
     </Box>
   );
 }

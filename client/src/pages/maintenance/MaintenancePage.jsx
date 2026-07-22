@@ -35,7 +35,6 @@ import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import { getErrorMessage } from '../../lib/axios.js';
 import { getSocket, connectSocket } from '../../lib/socket.js';
-import { useAuth } from '../../auth/AuthContext.jsx';
 import { usersApi } from '../../api/users.api.js';
 import {
   assetsApi,
@@ -1032,14 +1031,10 @@ const TABS = ['Assets', 'Maintenance', 'Bills & Renewals', 'Upcoming'];
 
 export default function MaintenancePage() {
   const qc = useQueryClient();
-  const { hasPermission } = useAuth();
   const [tab, setTab] = useState(0);
 
-  const perms = {
-    create: hasPermission('maintenance', 'create'),
-    update: hasPermission('maintenance', 'update'),
-    delete: hasPermission('maintenance', 'delete'),
-  };
+  // Owner-only console: RBAC removed — full access for every signed-in user.
+  const perms = { create: true, read: true, update: true, delete: true };
 
   // Asset option pool for the record dialog + filters.
   const assetsRefQuery = useQuery({

@@ -1,8 +1,6 @@
 import User from '../../models/user.model.js';
-import Role from '../../models/role.model.js';
 import Session from '../../models/session.model.js';
 import ApiError from '../../utils/ApiError.js';
-import { SYSTEM_ROLES } from '../../config/constants.js';
 import {
   signAccessToken,
   signRefreshToken,
@@ -30,27 +28,20 @@ async function issueTokens(user, { ip, userAgent } = {}) {
   return { accessToken, refreshToken, session };
 }
 
-export async function register({ name, email, password }) {
-  const exists = await User.findOne({ email });
-  if (exists) throw ApiError.conflict('An account with that email already exists');
-
-  // New self-registered users get the base "employee" role by default.
-  const employeeRole = await Role.findOne({ slug: SYSTEM_ROLES.EMPLOYEE });
-
-  const user = new User({
-    name,
-    email,
-    password,
-    roles: employeeRole ? [employeeRole._id] : [],
-  });
-  await user.save();
-  return user;
-}
+// Self-registration is disabled: DDD is an owner-only console. The route
+// returns 410 Gone (see auth.routes.js); accounts are created by the owner
+// or mirrored from HRMS.
 
 export async function login({ email, password, ip, userAgent }) {
   const user = await User.findOne({ email }).select('+password');
   if (!user) throw ApiError.unauthorized('Invalid email or password');
   if (!user.isActive) throw ApiError.forbidden('Account is disabled');
+
+  // HRMS-mirrored users and employees never log into DDD — this console is
+  // owner-only. They use the HRMS portal instead.
+  if (user.source === 'hrms' || user.accessLevel === 'employee') {
+    throw ApiError.forbidden('Please use the HRMS portal', { code: 'USE_HRMS_PORTAL' });
+  }
 
   const match = await user.comparePassword(password);
   if (!match) throw ApiError.unauthorized('Invalid email or password');
@@ -118,13 +109,16 @@ export async function logoutAll(userId) {
   await Session.updateMany({ user: userId, revokedAt: null }, { revokedAt: new Date() });
 }
 
-/** Load a user with roles + effective permissions for the /me endpoint. */
+/**
+ * Load the current user for the /me endpoint. RBAC removed: every
+ * authenticated user is the owner, so permissions are the wildcard and
+ * isSuperAdmin is always true (shape kept for client compat).
+ */
 export async function getProfile(userId) {
   const user = await User.findById(userId).populate({
     path: 'roles',
     populate: { path: 'permissions' },
   });
   if (!user) throw ApiError.notFound('User not found');
-  const { isSuperAdmin, permissions } = await user.getEffectivePermissions();
-  return { user, permissions: [...permissions], isSuperAdmin };
+  return { user, permissions: ['*'], isSuperAdmin: true };
 }

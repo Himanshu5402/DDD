@@ -94,6 +94,10 @@ const dailyReportSchema = new Schema(
     adminReview: { type: reviewSchema, default: null },
 
     aiSummary: { type: String, default: '' },
+
+    // HRMS mirror: the HRMS evening-report code (e.g. ER-101) this report was
+    // synced from. Absent on reports submitted natively in DDD.
+    externalId: { type: String, trim: true, unique: true, sparse: true },
   },
   { timestamps: true }
 );

@@ -24,10 +24,12 @@ import {
   DialogActions,
   Stack,
   Divider,
+  Snackbar,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import {
   payrollApi,
@@ -36,8 +38,8 @@ import {
 } from '../../api/payroll.api.js';
 import api from '../../lib/axios.js';
 import { getErrorMessage } from '../../lib/axios.js';
+import { hrmsErrorMessage } from '../../api/integrations.api.js';
 import { getSocket, connectSocket } from '../../lib/socket.js';
-import { useAuth } from '../../auth/AuthContext.jsx';
 
 const STATUS_COLOR = { draft: 'default', processing: 'warning', processed: 'info', paid: 'success' };
 
@@ -69,19 +71,17 @@ const EMPTY_FORM = {
 
 export default function PayrollPage() {
   const qc = useQueryClient();
-  const { hasPermission } = useAuth();
-  const perms = {
-    read: hasPermission('payroll', 'read'),
-    create: hasPermission('payroll', 'create'),
-    update: hasPermission('payroll', 'update'),
-    delete: hasPermission('payroll', 'delete'),
-  };
+  // Owner-only console: RBAC removed — full access for every signed-in user.
+  const perms = { read: true, create: true, update: true, delete: true };
 
   const [status, setStatus] = useState('');
   const [company, setCompany] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [saveError, setSaveError] = useState('');
+  const [runDialogOpen, setRunDialogOpen] = useState(false);
+  const [runError, setRunError] = useState('');
+  const [snack, setSnack] = useState(null); // { severity, message }
 
   const { data: companies = [] } = useQuery({
     queryKey: ['companies'],
@@ -134,6 +134,21 @@ export default function PayrollPage() {
   const deleteMutation = useMutation({
     mutationFn: (id) => payrollApi.remove(id),
     onSuccess: invalidate,
+    onError: (err) =>
+      setSnack({ severity: 'error', message: getErrorMessage(err, 'Failed to delete the period') }),
+  });
+
+  // Write-through: run the month's payroll inside the HRMS; the mirror row
+  // refreshes via the echo event (payroll:changed) + invalidation below.
+  const runHrmsMutation = useMutation({
+    mutationFn: (month) => payrollApi.runHrms(month),
+    onSuccess: (res, month) => {
+      setRunDialogOpen(false);
+      setRunError('');
+      invalidate();
+      setSnack({ severity: 'success', message: res?.message || `Payroll run in HRMS for ${month}` });
+    },
+    onError: (err) => setRunError(hrmsErrorMessage(err, 'Failed to run payroll in HRMS')),
   });
 
   const periods = listQuery.data?.data || [];
@@ -166,6 +181,15 @@ export default function PayrollPage() {
         action={
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
             <Chip label={`${total} periods`} />
+            {perms.create && (
+              <Button
+                variant="outlined"
+                startIcon={<PlayArrowIcon />}
+                onClick={() => { setRunError(''); setRunDialogOpen(true); }}
+              >
+                Run payroll in HRMS
+              </Button>
+            )}
             {perms.create && (
               <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
                 New period
@@ -387,7 +411,73 @@ export default function PayrollPage() {
         saving={saveMutation.isPending}
         error={saveError}
       />
+
+      <RunHrmsDialog
+        open={runDialogOpen}
+        onClose={() => setRunDialogOpen(false)}
+        onRun={(month) => runHrmsMutation.mutate(month)}
+        running={runHrmsMutation.isPending}
+        error={runError}
+      />
+
+      <Snackbar
+        open={Boolean(snack)}
+        autoHideDuration={6000}
+        onClose={() => setSnack(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity={snack?.severity || 'info'} onClose={() => setSnack(null)} sx={{ width: '100%' }}>
+          {snack?.message || ''}
+        </Alert>
+      </Snackbar>
     </Box>
+  );
+}
+
+/** Current local month as 'YYYY-MM' (default for the HRMS payroll run). */
+function currentMonth() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/** Month picker for the HRMS payroll run (write-through owner action). */
+function RunHrmsDialog({ open, onClose, onRun, running, error }) {
+  const [month, setMonth] = useState(currentMonth());
+
+  useEffect(() => {
+    if (open) setMonth(currentMonth());
+  }, [open]);
+
+  const monthValid = /^\d{4}-(0[1-9]|1[0-2])$/.test(month);
+
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
+      <DialogTitle>Run payroll in HRMS</DialogTitle>
+      <DialogContent>
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        <Stack spacing={2} sx={{ mt: 1 }}>
+          <Typography variant="body2" color="text.secondary">
+            Starts the payroll run for the selected month inside the HRMS. The
+            aggregates here refresh automatically once the HRMS reports back.
+          </Typography>
+          <TextField
+            label="Month"
+            type="month"
+            value={month}
+            onChange={(e) => setMonth(e.target.value)}
+            InputLabelProps={{ shrink: true }}
+            fullWidth
+            autoFocus
+          />
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" onClick={() => onRun(month)} disabled={!monthValid || running}>
+          {running ? 'Running…' : 'Run payroll'}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 

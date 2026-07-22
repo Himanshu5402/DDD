@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert, Avatar, Box, Chip, CircularProgress, Paper, Tooltip, Typography,
 } from '@mui/material';
@@ -7,6 +7,7 @@ import SupervisorAccountIcon from '@mui/icons-material/SupervisorAccount';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import { usersApi } from '../../api/users.api.js';
 import { getErrorMessage } from '../../lib/axios.js';
+import { getSocket, connectSocket } from '../../lib/socket.js';
 
 function initialsOf(name = '') {
   return name.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase();
@@ -89,10 +90,20 @@ function TreeNode({ person, childrenByManager, root = false }) {
 }
 
 export default function OrgChartPage() {
+  const qc = useQueryClient();
   const { data: users = [], isLoading, error } = useQuery({
     queryKey: ['org-chart'],
     queryFn: usersApi.orgChart,
   });
+
+  // Live updates: redraw the tree when users change anywhere (incl. HRMS sync).
+  useEffect(() => {
+    const socket = getSocket() || connectSocket();
+    if (!socket) return undefined;
+    const handler = () => qc.invalidateQueries({ queryKey: ['org-chart'] });
+    socket.on('users:changed', handler);
+    return () => socket.off('users:changed', handler);
+  }, [qc]);
 
   const { roots, childrenByManager, unassigned } = useMemo(() => {
     const byManager = new Map();

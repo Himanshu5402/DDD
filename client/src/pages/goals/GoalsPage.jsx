@@ -22,7 +22,6 @@ import { TASK_STATUS_LABELS } from '../../api/tasks.api.js';
 import { STATUS_ACCENT } from '../../components/tasks/taskMeta.js';
 import { getErrorMessage } from '../../lib/axios.js';
 import { getSocket, connectSocket } from '../../lib/socket.js';
-import { useAuth } from '../../auth/AuthContext.jsx';
 
 const toDateInput = (iso) => {
   if (!iso) return '';
@@ -63,8 +62,9 @@ const statusChipSx = (status) => SOFT_CHIP[GOAL_STATUS_COLOR[status]] || SOFT_CH
 
 export default function GoalsPage() {
   const qc = useQueryClient();
-  const { hasPermission } = useAuth();
-  const canCreate = hasPermission('goals', 'create');
+  // Owner-only console: RBAC removed — full access for every signed-in user.
+  const perms = { create: true, read: true, update: true, delete: true };
+  const canCreate = perms.create;
 
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
@@ -369,9 +369,10 @@ function GoalDialog({ open, onClose, onSave, goal, saving, error }) {
 
 function GoalDetailDrawer({ open, goalId, onClose, onEdit, onChanged }) {
   const qc = useQueryClient();
-  const { hasPermission } = useAuth();
-  const canEdit = hasPermission('goals', 'update');
-  const canDelete = hasPermission('goals', 'delete');
+  // Owner-only console: RBAC removed — full access for every signed-in user.
+  const perms = { create: true, read: true, update: true, delete: true };
+  const canEdit = perms.update;
+  const canDelete = perms.delete;
 
   const [milestoneTitle, setMilestoneTitle] = useState('');
   const [milestoneDue, setMilestoneDue] = useState('');

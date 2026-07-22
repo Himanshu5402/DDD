@@ -1,40 +1,24 @@
 import ApiError from '../utils/ApiError.js';
-import { ACTIONS } from '../config/constants.js';
 
 /**
- * RBAC guard. Requires the authenticated user to hold `module:action`
- * (or the module wildcard `module:manage`, or be a super admin).
- * Must run AFTER `authenticate`.
+ * RBAC removed — DDD is an owner-only console. `authorize()` is kept as a
+ * no-op passthrough so the ~20 route files that call
+ * `authorize(MODULES.X, ACTIONS.Y)` keep working untouched. It still requires
+ * `authenticate` to have run (defense-in-depth if a route ever drops it).
  *
  *   router.get('/', authenticate, authorize(MODULES.USERS, ACTIONS.READ), handler)
  */
-export default function authorize(module, action) {
+export default function authorize(_module, _action) {
   return (req, _res, next) => {
     if (!req.user) return next(ApiError.unauthorized('Authentication required'));
-    if (req.isSuperAdmin) return next();
-
-    const perms = req.permissions || new Set();
-    if (perms.has(`${module}:${action}`) || perms.has(`${module}:${ACTIONS.MANAGE}`)) {
-      return next();
-    }
-    return next(
-      ApiError.forbidden(`Missing permission: ${module}:${action}`, {
-        code: 'INSUFFICIENT_PERMISSIONS',
-      })
-    );
+    return next();
   };
 }
 
-/** Require ALL of the given [module, action] permission pairs. */
-export function authorizeAll(pairs) {
+/** RBAC removed — same no-op passthrough as `authorize()` (shape kept). */
+export function authorizeAll(_pairs) {
   return (req, _res, next) => {
     if (!req.user) return next(ApiError.unauthorized('Authentication required'));
-    if (req.isSuperAdmin) return next();
-    const perms = req.permissions || new Set();
-    const ok = pairs.every(
-      ([m, a]) => perms.has(`${m}:${a}`) || perms.has(`${m}:${ACTIONS.MANAGE}`)
-    );
-    if (ok) return next();
-    return next(ApiError.forbidden('Insufficient permissions', { code: 'INSUFFICIENT_PERMISSIONS' }));
+    return next();
   };
 }

@@ -17,9 +17,11 @@ export const listPositionsSchema = z.object({
   company: objectId.optional(),
 });
 
+// Creates write through to the HRMS (which assigns the JOB-## code) — the
+// department is required because the HRMS opening model requires `dept`.
 export const createPositionSchema = z.object({
   title: z.string().trim().min(1).max(300),
-  department: z.string().trim().max(200).optional(),
+  department: z.string().trim().min(1, 'Department is required').max(200),
   company: objectId.nullable().optional(),
   openings: z.number().int().min(0).optional(),
   priority: z.enum(POSITION_PRIORITIES).optional(),

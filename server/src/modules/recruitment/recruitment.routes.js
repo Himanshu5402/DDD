@@ -35,11 +35,13 @@ router.get(
   c.listPositions
 );
 
+// Write-through create — the opening is created in the HRMS first (which
+// assigns the JOB-## code), then mirrored here.
 router.post(
   '/positions',
   authorize(M, ACTIONS.CREATE),
   validate({ body: createPositionSchema }),
-  auditAction({ action: ACTIONS.CREATE, module: M, entityType: 'JobPosition', describe: (req) => `Created position "${req.body.title}"` }),
+  auditAction({ action: ACTIONS.CREATE, module: M, entityType: 'JobPosition', describe: (req) => `Created HRMS opening "${req.body.title}"` }),
   c.createPosition
 );
 
@@ -68,11 +70,13 @@ router.get(
   c.listCandidates
 );
 
+// Write-through create — the candidate is created in the HRMS first (which
+// assigns the CND-## code), then mirrored here.
 router.post(
   '/candidates',
   authorize(M, ACTIONS.CREATE),
   validate({ body: createCandidateSchema }),
-  auditAction({ action: ACTIONS.CREATE, module: M, entityType: 'Candidate', describe: (req) => `Added candidate "${req.body.name}"` }),
+  auditAction({ action: ACTIONS.CREATE, module: M, entityType: 'Candidate', describe: (req) => `Added HRMS candidate "${req.body.name}"` }),
   c.createCandidate
 );
 

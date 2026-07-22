@@ -25,7 +25,7 @@ function StatCard({ label, value, hint, color = 'primary.main' }) {
 }
 
 export default function DashboardPage() {
-  const { user, permissions, isSuperAdmin } = useAuth();
+  const { user } = useAuth();
 
   const allModules = NAV_SECTIONS.flatMap((s) => s.items).filter((i) => i.module);
   const ready = allModules.filter((m) => m.ready).length;
@@ -34,16 +34,16 @@ export default function DashboardPage() {
   return (
     <Box>
       <PageHeader
-        title={`Welcome, ${user?.name?.split(' ')[0] || 'there'} 👋`}
-        subtitle="Here's the state of your Command Center foundation."
+        title={`Welcome back, ${user?.name?.split(' ')[0] || 'Owner'} 👋`}
+        subtitle="Your owner console — every module, full access."
       />
 
       <Grid container spacing={2} sx={{ mb: 3 }}>
         <Grid item xs={6} md={3}>
-          <StatCard label="Your role" value={isSuperAdmin ? 'Super Admin' : 'Member'} hint="access level" />
+          <StatCard label="Workspace" value="Owner" hint="full console access" />
         </Grid>
         <Grid item xs={6} md={3}>
-          <StatCard label="Permissions" value={isSuperAdmin ? 'All' : permissions.size} hint="granted to you" color="secondary.main" />
+          <StatCard label="Access" value="All modules" hint="no restrictions" color="secondary.main" />
         </Grid>
         <Grid item xs={6} md={3}>
           <StatCard label="Modules live" value={`${ready}/${total}`} hint="foundation + built" color="success.main" />
@@ -99,8 +99,8 @@ export default function DashboardPage() {
             </Typography>
             {[
               'JWT auth with refresh-token rotation',
-              'RBAC with module-level permissions',
-              'Users, roles & audit trail',
+              'Owner-only access (RBAC retired)',
+              'Users directory & audit trail',
               'Dynamic custom-fields engine',
               'Pluggable storage & AI providers',
               'Real-time Socket.IO channel',

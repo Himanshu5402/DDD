@@ -3,6 +3,8 @@ import EmployeeRecord from '../../models/employeeRecord.model.js';
 import User from '../../models/user.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { parsePagination } from '../../utils/pagination.js';
+import * as hrms from '../../services/integrations/hrms.client.js';
+import { upsertEmployee } from '../integrations/hrmsSync.service.js';
 
 const USER_POPULATE = { path: 'user', select: 'name email department designation' };
 
@@ -224,13 +226,42 @@ export async function getTeam(query) {
 }
 
 /**
- * HRMS sync — the integration point for the external HRMS API. Until that API
- * ships it is mock-backed: it pulls the HRMS snapshot and upserts the employee
- * master fields, attendance, leave, recruitment, payroll and documents (all
- * source 'hrms'). Swap `ingestHrmsSnapshot` for a real HRMS client when live.
+ * HRMS sync — pulls the live HRMS bootstrap snapshot and rebuilds the mirror
+ * (employee master fields, attendance, leave, recruitment, payroll, evening
+ * reports — all source 'hrms', idempotent upserts). The seed.hrms mock stays
+ * available offline via `npm run seed:hrms` but is no longer wired in here.
  */
 export async function hrmsSync() {
-  const { seedHrms } = await import('../../seed/seed.hrms.js');
-  const counts = await seedHrms();
-  return { status: 'synced', ...counts };
+  const { runBootstrapSync } = await import('../integrations/hrmsSync.service.js');
+  return runBootstrapSync();
+}
+
+/* ==================== HRMS employee write-through ===================== */
+// The HRMS is the source of truth for people data — owner employee ops from
+// DDD are forwarded to /integration/employees* there. The User mirror is
+// refreshed from the response immediately and converges again via the
+// employee.* echo events the HRMS emits after every write. On HRMS failure
+// the ApiError from hrms.client propagates and the mirror is untouched.
+
+/** Refresh the User mirror from an HRMS employee doc (echo-safe, idempotent). */
+async function mirrorFromHrms(employee) {
+  const user = employee?.empId ? await upsertEmployee(employee) : null;
+  return { employee: employee ?? null, user };
+}
+
+export async function createEmployeeInHrms(data) {
+  const res = await hrms.post('/integration/employees', data);
+  return mirrorFromHrms(res?.data);
+}
+
+export async function updateEmployeeInHrms(empId, data) {
+  const res = await hrms.put(`/integration/employees/${encodeURIComponent(empId)}`, data);
+  return mirrorFromHrms(res?.data);
+}
+
+export async function toggleEmployeeStatusInHrms(empId) {
+  const res = await hrms.patch(
+    `/integration/employees/${encodeURIComponent(empId)}/toggle-status`
+  );
+  return mirrorFromHrms(res?.data);
 }

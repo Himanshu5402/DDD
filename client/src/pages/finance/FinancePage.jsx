@@ -58,7 +58,6 @@ import {
 } from '../../api/finance.api.js';
 import { getErrorMessage } from '../../lib/axios.js';
 import { getSocket, connectSocket } from '../../lib/socket.js';
-import { useAuth } from '../../auth/AuthContext.jsx';
 
 const inr = new Intl.NumberFormat('en-IN', {
   style: 'currency',
@@ -386,10 +385,11 @@ const EMPTY_TRANSACTION_FORM = {
 
 function TransactionsTab() {
   const qc = useQueryClient();
-  const { hasPermission } = useAuth();
-  const canCreate = hasPermission('finance', 'create');
-  const canUpdate = hasPermission('finance', 'update');
-  const canDelete = hasPermission('finance', 'delete');
+  // Owner-only console: RBAC removed — full access for every signed-in user.
+  const perms = { create: true, read: true, update: true, delete: true };
+  const canCreate = perms.create;
+  const canUpdate = perms.update;
+  const canDelete = perms.delete;
 
   const [type, setType] = useState('');
   const [search, setSearch] = useState('');
@@ -764,10 +764,11 @@ const EMPTY_BUDGET_FORM = {
 
 function BudgetsTab() {
   const qc = useQueryClient();
-  const { hasPermission } = useAuth();
-  const canCreate = hasPermission('finance', 'create');
-  const canUpdate = hasPermission('finance', 'update');
-  const canDelete = hasPermission('finance', 'delete');
+  // Owner-only console: RBAC removed — full access for every signed-in user.
+  const perms = { create: true, read: true, update: true, delete: true };
+  const canCreate = perms.create;
+  const canUpdate = perms.update;
+  const canDelete = perms.delete;
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState(null);

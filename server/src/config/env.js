@@ -68,6 +68,14 @@ const schema = z.object({
   PEPSI_SYNC_ENABLED: bool(false), // when true, the scheduled background sync runs
   PEPSI_SYNC_INTERVAL_MS: z.coerce.number().default(30 * 60 * 1000), // 30 min
 
+  // ----- HRMS (RAMP) integration -----
+  // Two-way sync with the company HRMS. INTEGRATION_API_KEY is the shared
+  // secret (same value in the HRMS .env) guarding /integrations/hrms inbound
+  // events and stamped on outbound calls to HRMS_API_URL.
+  HRMS_API_URL: z.string().optional().default(''), // e.g. http://localhost:5000/api/v1
+  INTEGRATION_API_KEY: z.string().optional().default(''),
+  HRMS_SYNC_ENABLED: bool(false), // when true, /sync + hrmsSync() pull live HRMS data
+
   // ----- Bills & renewals expiry reminders -----
   // Sweeps active expiry items and notifies admins as due dates approach.
   EXPIRY_REMINDERS_ENABLED: bool(true),

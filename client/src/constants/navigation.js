@@ -14,14 +14,13 @@ import NightsStayIcon from '@mui/icons-material/NightsStay';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import PeopleIcon from '@mui/icons-material/People';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
-import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import TuneIcon from '@mui/icons-material/Tune';
 import HistoryIcon from '@mui/icons-material/History';
 
 /**
- * Sidebar navigation. `module`/`action` map to RBAC permissions — items the
- * user can't access are hidden. `ready:false` marks modules not yet built
- * (shown as "coming soon"). `null` module = always visible.
+ * Sidebar navigation. Owner-only console — every item is visible to any
+ * signed-in user (RBAC removed; `module`/`action` metadata kept inert).
+ * `ready:false` marks modules not yet built (shown as "coming soon").
  */
 export const NAV_SECTIONS = [
   {
@@ -66,7 +65,6 @@ export const NAV_SECTIONS = [
     heading: 'Administration',
     items: [
       { label: 'Users', to: '/admin/users', icon: PeopleIcon, module: 'users', action: 'read', ready: true },
-      { label: 'Roles & Permissions', to: '/admin/roles', icon: AdminPanelSettingsIcon, module: 'roles', action: 'read', ready: true },
       { label: 'Custom Fields', to: '/admin/custom-fields', icon: TuneIcon, module: 'custom_fields', action: 'read', ready: true },
       { label: 'Audit Log', to: '/admin/audit', icon: HistoryIcon, module: 'audit', action: 'read', ready: true },
     ],

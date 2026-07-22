@@ -160,15 +160,8 @@ export async function setUserStatus(id, isActive, actingUserId) {
   return user;
 }
 
-export async function assignRoles(id, roleIds, actor) {
-  await assertRolesExist(roleIds);
-  await assertCanAssignRoles(roleIds, actor, id);
-  const user = await User.findByIdAndUpdate(id, { roles: roleIds }, { new: true }).populate(
-    POPULATE_ROLES
-  );
-  if (!user) throw ApiError.notFound('User not found');
-  return user;
-}
+// assignRoles removed — RBAC gone (owner-only console). Roles data itself is
+// kept (seeds + notification lookups by role slug still use it).
 
 export async function adminResetPassword(id, newPassword) {
   const user = await User.findById(id);

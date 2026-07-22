@@ -2,10 +2,12 @@ import DailyReport from '../../models/dailyReport.model.js';
 import User from '../../models/user.model.js';
 import Role from '../../models/role.model.js';
 import ApiError from '../../utils/ApiError.js';
+import logger from '../../config/logger.js';
 import { parsePagination } from '../../utils/pagination.js';
 import { MODULES, ACTIONS, SYSTEM_ROLES } from '../../config/constants.js';
 import { getAI } from '../../services/ai/index.js';
 import { notify, notifyMany } from '../notifications/notifications.service.js';
+import * as hrms from '../../services/integrations/hrms.client.js';
 
 const USER_POPULATE = {
   path: 'user',
@@ -214,9 +216,32 @@ export async function decideReport(id, { decision, reason }, actor, ctx = {}) {
   }
   await report.save();
 
+  // Round-trip: an HRMS-mirrored report (externalId = ER-###) pushes the owner
+  // decision back so the employee sees it in the HRMS portal + bell. Fire and
+  // forget — the DDD decision stands even if the HRMS is briefly unreachable.
+  if (report.externalId) forwardDecisionToHrms(report.externalId, decision, reason);
+
   await notifyDecision(report, author, actor, level, decision, reason);
 
   return DailyReport.findById(report._id).populate(LIST_POPULATE);
+}
+
+/**
+ * Push a decision on a mirrored report back to the HRMS. Never throws and is
+ * never awaited by the caller — a failed push must not roll back the decision;
+ * it is only logged (the HRMS catches up on its next look at the report).
+ */
+function forwardDecisionToHrms(externalId, decision, reason) {
+  const body = {
+    decision: decision === 'approved' ? 'Approved' : 'Rejected',
+    reason: String(reason || '').slice(0, 500),
+    by: 'Owner',
+  };
+  hrms
+    .post(`/integration/evening-reports/${encodeURIComponent(externalId)}/response`, body)
+    .catch((err) => {
+      logger.warn(`HRMS evening-report response push failed for ${externalId}: ${err.message}`);
+    });
 }
 
 /** Fan out notifications for an approval decision, up and down the chain. */
