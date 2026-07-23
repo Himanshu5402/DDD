@@ -49,9 +49,7 @@ import {
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import {
   financeApi,
-  TRANSACTION_TYPES,
   TRANSACTION_TYPE_LABELS,
-  PAYMENT_METHODS,
   PAYMENT_METHOD_LABELS,
   BUDGET_PERIODS,
   BUDGET_PERIOD_LABELS,
@@ -249,9 +247,9 @@ function OverviewTab() {
                     <TableCell>{c.category}</TableCell>
                     <TableCell>
                       <Chip
-                        label={TRANSACTION_TYPE_LABELS[c.type] || c.type}
+                        label={TRANSACTION_TYPE_LABELS[c.type] || (c.type ? c.type.charAt(0).toUpperCase() + c.type.slice(1).replace(/_/g, ' ') : c.type)}
                         size="small"
-                        color={c.type === 'income' ? 'success' : 'error'}
+                        color={(c.direction || (c.type === 'income' ? 'in' : 'out')) === 'in' ? 'success' : 'error'}
                         variant="outlined"
                       />
                     </TableCell>
@@ -365,9 +363,96 @@ const PAYMENT_REF_PLACEHOLDERS = {
 };
 
 // Display label for a transaction's method — the custom text wins for 'other'.
-function methodLabel(t) {
+function methodLabel(t, methodMap = {}) {
   if (t.paymentMethod === 'other' && t.paymentMethodOther) return t.paymentMethodOther;
-  return PAYMENT_METHOD_LABELS[t.paymentMethod] || t.paymentMethod;
+  return methodMap[t.paymentMethod]?.label || PAYMENT_METHOD_LABELS[t.paymentMethod] || t.paymentMethod;
+}
+
+/**
+ * Small dialog to add a finance option (category or payment method).
+ * For methods, the optional "Payment ID label" customises the reference field
+ * shown in the transaction form — leave it EMPTY for cash-like methods that
+ * carry no reference id (the field is then hidden entirely).
+ */
+function AddFinanceOptionDialog({ open, kind, onClose, onAdded }) {
+  const qc = useQueryClient();
+  const [label, setLabel] = useState('');
+  const [refLabel, setRefLabel] = useState('Payment ID');
+  const [direction, setDirection] = useState('out');
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    if (open) { setLabel(''); setRefLabel('Payment ID'); setDirection('out'); setErr(''); }
+  }, [open]);
+
+  const m = useMutation({
+    mutationFn: () =>
+      financeApi.addOption({
+        kind,
+        label: label.trim(),
+        refLabel: kind === 'method' ? refLabel.trim() : undefined,
+        direction: kind === 'type' ? direction : undefined,
+      }),
+    onSuccess: (opt) => {
+      qc.invalidateQueries({ queryKey: ['finance', 'options'] });
+      onAdded?.(opt);
+      onClose();
+    },
+    onError: (e) => setErr(getErrorMessage(e, 'Failed to add')),
+  });
+
+  const canSave = label.trim().length >= 2 && !m.isPending;
+  const title =
+    kind === 'method' ? 'Add payment method' : kind === 'type' ? 'Add transaction type' : 'Add category';
+
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
+      <DialogTitle>{title}</DialogTitle>
+      <DialogContent>
+        {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
+        <Stack spacing={2} sx={{ mt: 1 }}>
+          <TextField
+            label={kind === 'method' ? 'Method name' : 'Category name'}
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && canSave) m.mutate(); }}
+            placeholder={kind === 'method' ? 'e.g. Razorpay' : 'e.g. Office Rent'}
+            autoFocus
+            fullWidth
+          />
+          {kind === 'method' && (
+            <TextField
+              label="Payment ID field label"
+              value={refLabel}
+              onChange={(e) => setRefLabel(e.target.value)}
+              fullWidth
+              placeholder="e.g. Payment ID — Razorpay ref"
+              helperText="Leave empty if this method has no reference id (like cash) — the field will be hidden."
+            />
+          )}
+          {kind === 'type' && (
+            <TextField
+              select
+              label="Counts as"
+              value={direction}
+              onChange={(e) => setDirection(e.target.value)}
+              fullWidth
+              helperText="Drives all totals and charts — money-in adds like Income, money-out subtracts like Expense."
+            >
+              <MenuItem value="in">Money in (like Income)</MenuItem>
+              <MenuItem value="out">Money out (like Expense)</MenuItem>
+            </TextField>
+          )}
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" onClick={() => m.mutate()} disabled={!canSave}>
+          {m.isPending ? 'Adding…' : 'Add'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
 }
 
 const EMPTY_TRANSACTION_FORM = {
@@ -392,17 +477,30 @@ function TransactionsTab() {
   const canDelete = perms.delete;
 
   const [type, setType] = useState('');
+  const [category, setCategory] = useState('');
   const [search, setSearch] = useState('');
+
+  // Admin-customizable dropdown options (categories + payment methods).
+  const optionsQuery = useQuery({
+    queryKey: ['finance', 'options'],
+    queryFn: financeApi.options,
+    staleTime: 60_000,
+  });
+  const options = optionsQuery.data || { categories: [], methods: [], types: [] };
+  const methodMap = Object.fromEntries(options.methods.map((m) => [m.key, m]));
+  const typeMap = Object.fromEntries((options.types || []).map((t) => [t.key, t]));
+  const isMoneyIn = (t) => (t.direction || typeMap[t.type]?.direction) === 'in';
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [saveError, setSaveError] = useState('');
 
   const params = { limit: 50 };
   if (type) params.type = type;
+  if (category) params.category = category;
   if (search) params.search = search;
 
   const listQuery = useQuery({
-    queryKey: ['finance', 'transactions', { type, search }],
+    queryKey: ['finance', 'transactions', { type, category, search }],
     queryFn: () => financeApi.listTransactions(params),
   });
 
@@ -464,8 +562,21 @@ function TransactionsTab() {
           sx={{ minWidth: 160 }}
         >
           <MenuItem value="">All types</MenuItem>
-          {TRANSACTION_TYPES.map((t) => (
-            <MenuItem key={t} value={t}>{TRANSACTION_TYPE_LABELS[t]}</MenuItem>
+          {(options.types || []).map((t) => (
+            <MenuItem key={t.key} value={t.key}>{t.label}</MenuItem>
+          ))}
+        </TextField>
+        <TextField
+          select
+          size="small"
+          label="Category"
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          sx={{ minWidth: 180 }}
+        >
+          <MenuItem value="">All categories</MenuItem>
+          {options.categories.map((c) => (
+            <MenuItem key={c.key} value={c.key}>{c.label}</MenuItem>
           ))}
         </TextField>
         <Box sx={{ flex: 1 }} />
@@ -514,9 +625,9 @@ function TransactionsTab() {
                   <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatDate(t.date)}</TableCell>
                   <TableCell>
                     <Chip
-                      label={TRANSACTION_TYPE_LABELS[t.type] || t.type}
+                      label={typeMap[t.type]?.label || TRANSACTION_TYPE_LABELS[t.type] || t.type}
                       size="small"
-                      color={t.type === 'income' ? 'success' : 'error'}
+                      color={isMoneyIn(t) ? 'success' : 'error'}
                     />
                   </TableCell>
                   <TableCell>{t.category || '—'}</TableCell>
@@ -531,7 +642,7 @@ function TransactionsTab() {
                     )}
                   </TableCell>
                   <TableCell>
-                    {methodLabel(t)}
+                    {methodLabel(t, methodMap)}
                     {t.paymentRef && (
                       <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', fontFamily: 'ui-monospace, monospace', maxWidth: 180 }}>
                         {t.paymentRef}
@@ -544,11 +655,11 @@ function TransactionsTab() {
                       sx={{
                         fontWeight: 700,
                         fontVariantNumeric: 'tabular-nums',
-                        color: t.type === 'income' ? 'success.main' : 'error.main',
+                        color: isMoneyIn(t) ? 'success.main' : 'error.main',
                         whiteSpace: 'nowrap',
                       }}
                     >
-                      {t.type === 'income' ? '+' : '−'}{formatINR(t.amount)}
+                      {isMoneyIn(t) ? '+' : '−'}{formatINR(t.amount)}
                     </Typography>
                   </TableCell>
                   <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
@@ -577,14 +688,38 @@ function TransactionsTab() {
         transaction={editing}
         saving={saveMutation.isPending}
         error={saveError}
+        options={options}
       />
     </Box>
   );
 }
 
 /** Create / edit form for a transaction's core fields. */
-function TransactionDialog({ open, onClose, onSave, transaction, saving, error }) {
+function TransactionDialog({ open, onClose, onSave, transaction, saving, error, options = { categories: [], methods: [], types: [] } }) {
   const [form, setForm] = useState(EMPTY_TRANSACTION_FORM);
+  // Which "add option" dialog is open: null | 'category' | 'method'.
+  const [addingKind, setAddingKind] = useState(null);
+
+  // The Select must always have an option matching the current value (legacy
+  // rows / a just-added option that hasn't refetched yet).
+  const methodOptions = options.methods.some((m) => m.key === form.paymentMethod)
+    ? options.methods
+    : [...options.methods, { key: form.paymentMethod, label: form.paymentMethod, refLabel: 'Payment ID' }];
+  const selMethod = methodOptions.find((m) => m.key === form.paymentMethod);
+  // Empty refLabel = cash-like method with no reference id.
+  const showRef = (selMethod?.refLabel ?? 'Payment ID') !== '';
+
+  const formCategories = options.categories.filter((c) => c.key !== 'uncategorized');
+  const categoryOptions = !form.category || formCategories.some((c) => c.key === form.category)
+    ? formCategories
+    : [...formCategories, { key: form.category, label: form.category }];
+
+  const baseTypes = options.types?.length
+    ? options.types
+    : [{ key: 'income', label: 'Income' }, { key: 'expense', label: 'Expense' }];
+  const typeOptions = baseTypes.some((t) => t.key === form.type)
+    ? baseTypes
+    : [...baseTypes, { key: form.type, label: form.type }];
 
   // Previously-saved custom methods, so a method typed once is re-pickable.
   const customMethodsQuery = useQuery({
@@ -601,7 +736,7 @@ function TransactionDialog({ open, onClose, onSave, transaction, saving, error }
         type: transaction.type || 'expense',
         amount: String(transaction.amount ?? ''),
         date: transaction.date ? new Date(transaction.date).toISOString().slice(0, 10) : '',
-        category: transaction.category || '',
+        category: transaction.category === 'uncategorized' ? '' : (transaction.category || ''),
         description: transaction.description || '',
         paymentMethod: transaction.paymentMethod || 'bank',
         paymentRef: transaction.paymentRef || '',
@@ -623,8 +758,8 @@ function TransactionDialog({ open, onClose, onSave, transaction, saving, error }
       category: form.category.trim() || undefined,
       description: form.description,
       paymentMethod: form.paymentMethod,
-      // Cash carries no reference; otherwise persist the entered Payment ID.
-      paymentRef: form.paymentMethod === 'cash' ? '' : form.paymentRef.trim(),
+      // Cash-like methods (empty refLabel) carry no reference id.
+      paymentRef: showRef ? form.paymentRef.trim() : '',
       // Custom method label only applies to 'other'.
       paymentMethodOther: form.paymentMethod === 'other' ? form.paymentMethodOther.trim() : '',
       party: { name: form.partyName.trim() },
@@ -643,10 +778,23 @@ function TransactionDialog({ open, onClose, onSave, transaction, saving, error }
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
         <Stack spacing={2} sx={{ mt: 1 }}>
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            <TextField select label="Type" value={form.type} onChange={set('type')} sx={{ flex: 1, minWidth: 160 }}>
-              {TRANSACTION_TYPES.map((t) => (
-                <MenuItem key={t} value={t}>{TRANSACTION_TYPE_LABELS[t]}</MenuItem>
+            <TextField
+              select
+              label="Type"
+              value={form.type}
+              onChange={(e) => {
+                if (e.target.value === '__add_type__') { setAddingKind('type'); return; }
+                set('type')(e);
+              }}
+              sx={{ flex: 1, minWidth: 160 }}
+            >
+              {typeOptions.map((t) => (
+                <MenuItem key={t.key} value={t.key}>{t.label}</MenuItem>
               ))}
+              <Divider />
+              <MenuItem value="__add_type__" sx={{ color: 'primary.main', fontWeight: 600 }}>
+                <AddIcon fontSize="small" sx={{ mr: 1 }} /> Add new type…
+              </MenuItem>
             </TextField>
             <TextField
               label="Amount"
@@ -675,8 +823,8 @@ function TransactionDialog({ open, onClose, onSave, transaction, saving, error }
               value={form.paymentMethod}
               onChange={(e) => {
                 const v = e.target.value;
-                // "＋ Add custom method…" starts a fresh custom entry.
-                if (v === CUSTOM_METHOD) { setForm((f) => ({ ...f, paymentMethod: 'other', paymentMethodOther: '' })); return; }
+                // "＋ Add new method…" opens the add-option dialog (saved server-side).
+                if (v === CUSTOM_METHOD) { setAddingKind('method'); return; }
                 // A previously-saved custom method — reuse its label, no re-typing.
                 if (String(v).startsWith(CUSTOM_PREFIX)) {
                   setForm((f) => ({ ...f, paymentMethod: 'other', paymentMethodOther: String(v).slice(CUSTOM_PREFIX.length) }));
@@ -687,8 +835,8 @@ function TransactionDialog({ open, onClose, onSave, transaction, saving, error }
               }}
               sx={{ flex: 1, minWidth: 160 }}
             >
-              {PAYMENT_METHODS.map((m) => (
-                <MenuItem key={m} value={m}>{PAYMENT_METHOD_LABELS[m]}</MenuItem>
+              {methodOptions.map((m) => (
+                <MenuItem key={m.key} value={m.key}>{m.label}</MenuItem>
               ))}
               {savedCustomMethods.length > 0 && <Divider />}
               {savedCustomMethods.length > 0 && (
@@ -701,7 +849,7 @@ function TransactionDialog({ open, onClose, onSave, transaction, saving, error }
               ))}
               <Divider />
               <MenuItem value={CUSTOM_METHOD} sx={{ color: 'primary.main', fontWeight: 600 }}>
-                <AddIcon fontSize="small" sx={{ mr: 1 }} /> Add custom method…
+                <AddIcon fontSize="small" sx={{ mr: 1 }} /> Add new method…
               </MenuItem>
             </TextField>
           </Box>
@@ -716,25 +864,37 @@ function TransactionDialog({ open, onClose, onSave, transaction, saving, error }
               InputProps={{ startAdornment: <InputAdornment position="start"><AddIcon fontSize="small" color="disabled" /></InputAdornment> }}
             />
           )}
-          {/* Payment ID — shown for every method except cash. */}
-          {form.paymentMethod !== 'cash' && (
+          {/* Payment ID — hidden for cash-like methods (empty refLabel). */}
+          {showRef && (
             <TextField
-              label={PAYMENT_REF_LABELS[form.paymentMethod] || 'Payment ID'}
+              label={selMethod?.refLabel || PAYMENT_REF_LABELS[form.paymentMethod] || 'Payment ID'}
               value={form.paymentRef}
               onChange={set('paymentRef')}
               fullWidth
               placeholder={PAYMENT_REF_PLACEHOLDERS[form.paymentMethod] || 'Payment reference / ID'}
-              helperText={`Reference / ID for this ${(PAYMENT_METHOD_LABELS[form.paymentMethod] || '').toLowerCase()} payment`}
+              helperText={`Reference / ID for this ${(selMethod?.label || form.paymentMethod).toLowerCase()} payment`}
               InputProps={{ startAdornment: <InputAdornment position="start"><ReceiptLongIcon fontSize="small" color="disabled" /></InputAdornment> }}
             />
           )}
           <TextField
+            select
             label="Category"
             value={form.category}
-            onChange={set('category')}
+            onChange={(e) => {
+              if (e.target.value === '__add_category__') { setAddingKind('category'); return; }
+              set('category')(e);
+            }}
             fullWidth
-            placeholder="e.g. salary, rent, software, gst, vendor_payment"
-          />
+          >
+            <MenuItem value="">Uncategorized</MenuItem>
+            {categoryOptions.map((c) => (
+              <MenuItem key={c.key} value={c.key}>{c.label}</MenuItem>
+            ))}
+            <Divider />
+            <MenuItem value="__add_category__" sx={{ color: 'primary.main', fontWeight: 600 }}>
+              <AddIcon fontSize="small" sx={{ mr: 1 }} /> Add new category…
+            </MenuItem>
+          </TextField>
           <TextField label="Description" value={form.description} onChange={set('description')} fullWidth multiline minRows={2} />
           <TextField label="Party name" value={form.partyName} onChange={set('partyName')} fullWidth placeholder="Who was paid / who paid" />
           <TextField label="Tags" value={form.tags} onChange={set('tags')} fullWidth placeholder="Comma separated, e.g. q2, office" />
@@ -746,6 +906,21 @@ function TransactionDialog({ open, onClose, onSave, transaction, saving, error }
           {saving ? 'Saving…' : 'Save'}
         </Button>
       </DialogActions>
+
+      <AddFinanceOptionDialog
+        open={Boolean(addingKind)}
+        kind={addingKind || 'category'}
+        onClose={() => setAddingKind(null)}
+        onAdded={(opt) =>
+          setForm((f) =>
+            addingKind === 'method'
+              ? { ...f, paymentMethod: opt.key, paymentMethodOther: '' }
+              : addingKind === 'type'
+                ? { ...f, type: opt.key }
+                : { ...f, category: opt.key }
+          )
+        }
+      />
     </Dialog>
   );
 }
@@ -903,6 +1078,15 @@ function BudgetsTab() {
 
 /** Create / edit form for a budget. */
 function BudgetDialog({ open, onClose, onSave, budget, saving, error }) {
+  // Same dynamic categories as transactions (react-query dedupes the fetch).
+  const optionsQuery = useQuery({
+    queryKey: ['finance', 'options'],
+    queryFn: financeApi.options,
+    staleTime: 60_000,
+    enabled: open,
+  });
+  const budgetCategories = optionsQuery.data?.categories || [];
+  const [addingCategory, setAddingCategory] = useState(false);
   const [form, setForm] = useState(EMPTY_BUDGET_FORM);
 
   useEffect(() => {
@@ -948,13 +1132,27 @@ function BudgetDialog({ open, onClose, onSave, budget, saving, error }) {
           <TextField label="Name" value={form.name} onChange={set('name')} required fullWidth autoFocus />
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
             <TextField
+              select
               label="Category"
               value={form.category}
-              onChange={set('category')}
+              onChange={(e) => {
+                if (e.target.value === '__add_category__') { setAddingCategory(true); return; }
+                set('category')(e);
+              }}
               required
-              placeholder="Matches transaction category"
               sx={{ flex: 1, minWidth: 180 }}
-            />
+            >
+              {(budgetCategories.some((c) => c.key === form.category) || !form.category
+                ? budgetCategories
+                : [...budgetCategories, { key: form.category, label: form.category }]
+              ).map((c) => (
+                <MenuItem key={c.key} value={c.key}>{c.label}</MenuItem>
+              ))}
+              <Divider />
+              <MenuItem value="__add_category__" sx={{ color: 'primary.main', fontWeight: 600 }}>
+                <AddIcon fontSize="small" sx={{ mr: 1 }} /> Add new category…
+              </MenuItem>
+            </TextField>
             <TextField select label="Period" value={form.period} onChange={set('period')} sx={{ flex: 1, minWidth: 160 }}>
               {BUDGET_PERIODS.map((p) => (
                 <MenuItem key={p} value={p}>{BUDGET_PERIOD_LABELS[p]}</MenuItem>
@@ -998,6 +1196,13 @@ function BudgetDialog({ open, onClose, onSave, budget, saving, error }) {
           {saving ? 'Saving…' : 'Save'}
         </Button>
       </DialogActions>
+
+      <AddFinanceOptionDialog
+        open={addingCategory}
+        kind="category"
+        onClose={() => setAddingCategory(false)}
+        onAdded={(opt) => setForm((f) => ({ ...f, category: opt.key }))}
+      />
     </Dialog>
   );
 }

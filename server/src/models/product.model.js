@@ -2,23 +2,9 @@ import mongoose from 'mongoose';
 
 const { Schema } = mongoose;
 
-export const PRODUCT_CATEGORIES = Object.freeze([
-  'process_automation',
-  'mern',
-  'sap',
-  'abap',
-  'blockchain',
-  'ai',
-  'robotics',
-  'cameras',
-  'conveyors',
-  'iot',
-  'scada',
-  'plc',
-  'sensors',
-  'custom_hardware',
-  'other',
-]);
+// No hardcoded catalog — categories are admin-managed (ProductCategory model).
+// 'other' stays as the schema default / fallback bucket.
+export const PRODUCT_CATEGORIES = Object.freeze(['other']);
 export const PRODUCT_STATUSES = Object.freeze(['development', 'active', 'deprecated']);
 export const ROADMAP_STATUSES = Object.freeze(['planned', 'in_progress', 'released']);
 
@@ -46,7 +32,8 @@ const productSchema = new Schema(
     sku: { type: String, unique: true, sparse: true, uppercase: true, trim: true },
     description: { type: String, default: '' },
 
-    category: { type: String, enum: PRODUCT_CATEGORIES, default: 'other', index: true },
+    // Open set: built-in PRODUCT_CATEGORIES + admin-added ProductCategory rows.
+    category: { type: String, default: 'other', trim: true, lowercase: true, index: true },
     status: { type: String, enum: PRODUCT_STATUSES, default: 'active', index: true },
 
     currentVersion: { type: String, default: '1.0.0' },
@@ -62,6 +49,15 @@ const productSchema = new Schema(
     upgradeRoadmap: [roadmapItemSchema],
 
     tags: [{ type: String, trim: true }],
+
+    // Free-form per-product fields the admin adds in the form ("Add field"):
+    // e.g. a CPU listing 50 components, another product only 20.
+    specs: [
+      {
+        name: { type: String, required: true, trim: true },
+        value: { type: String, default: '', trim: true },
+      },
+    ],
 
     // Dynamic admin-defined fields (entityType 'product').
     customFields: { type: Schema.Types.Mixed, default: {} },

@@ -1,7 +1,9 @@
 import api from '../lib/axios.js';
 
 // --- Enum option lists (mirror the server models) ---------------------------
-export const CONTACT_TYPES = ['lead', 'customer'];
+export const CONTACT_TYPES = ['lead', 'customer', 'supplier'];
+// System of origin for mirrored contacts (ERP suppliers/customers, PEPSI customers/leads).
+export const CONTACT_SOURCE_SYSTEMS = ['manual', 'erp', 'pepsi'];
 export const CONTACT_STATUSES = ['new', 'contacted', 'qualified', 'active', 'inactive', 'lost'];
 export const PROJECT_STATUSES = ['planning', 'active', 'on_hold', 'completed', 'cancelled'];
 export const RENEWAL_STATUSES = ['upcoming', 'due', 'renewed', 'expired', 'cancelled'];

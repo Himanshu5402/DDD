@@ -67,6 +67,19 @@ const schema = z.object({
   PEPSI_PROJECTS_PATH: z.string().default('/projects'), // expected endpoint (flip-ready)
   PEPSI_SYNC_ENABLED: bool(false), // when true, the scheduled background sync runs
   PEPSI_SYNC_INTERVAL_MS: z.coerce.number().default(30 * 60 * 1000), // 30 min
+  // Dedicated key for the PEPSI backend integration module: guards inbound
+  // /integrations/pepsi/events and is stamped on outbound calls to the
+  // PEPSI /api/integration/* endpoints (preferred over the login flow).
+  PEPSI_INTEGRATION_API_KEY: z.string().optional().default(''),
+
+  // ----- itsybizz-ERP (inventory / production / traceability) integration -----
+  // Two-way sync with the company ERP. ERP_INTEGRATION_API_KEY is the shared
+  // secret (same value in the ERP .env, its INTEGRATION_API_KEY) guarding
+  // /integrations/erp inbound events and stamped on outbound calls to the
+  // ERP /api/integration/* endpoints.
+  ERP_API_URL: z.string().optional().default(''), // e.g. http://localhost:9078/api
+  ERP_INTEGRATION_API_KEY: z.string().optional().default(''),
+  ERP_SYNC_ENABLED: bool(false),
 
   // ----- HRMS (RAMP) integration -----
   // Two-way sync with the company HRMS. INTEGRATION_API_KEY is the shared

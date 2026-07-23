@@ -22,6 +22,7 @@ const FinancePage = lazy(() => import("./pages/finance/FinancePage.jsx"));
 const MaintenancePage = lazy(
   () => import("./pages/maintenance/MaintenancePage.jsx"),
 );
+const ErpPage = lazy(() => import("./pages/erp/ErpPage.jsx"));
 const EmployeeAnalyticsPage = lazy(
   () => import("./pages/employees/EmployeeAnalyticsPage.jsx"),
 );
@@ -66,6 +67,7 @@ export default function App() {
             <Route path="products" element={<ProductsPage />} />
             <Route path="finance" element={<FinancePage />} />
             <Route path="maintenance" element={<MaintenancePage />} />
+            <Route path="erp" element={<ErpPage />} />
             <Route path="employees" element={<EmployeeAnalyticsPage />} />
             <Route path="leave" element={<LeavePage />} />
             <Route path="recruitment" element={<RecruitmentPage />} />

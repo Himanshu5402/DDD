@@ -1,4 +1,5 @@
-import Transaction from '../../models/transaction.model.js';
+import Transaction, { PAYMENT_METHODS } from '../../models/transaction.model.js';
+import FinanceOption from '../../models/financeOption.model.js';
 import Budget from '../../models/budget.model.js';
 import ApiError from '../../utils/ApiError.js';
 import { parsePagination } from '../../utils/pagination.js';
@@ -58,15 +59,163 @@ export async function getTransaction(id) {
   return transaction;
 }
 
+// ---------------------------------------------------------------------------
+// Dynamic options — categories & payment methods (built-ins + admin-added).
+
+const BUILT_IN_TYPES = Object.freeze({
+  income: { label: 'Income', direction: 'in' },
+  expense: { label: 'Expense', direction: 'out' },
+});
+
+const BUILT_IN_METHODS = Object.freeze({
+  cash: { label: 'Cash', refLabel: '' }, // cash-like: no reference id
+  bank: { label: 'Bank transfer', refLabel: 'Payment ID — Bank / UTR ref' },
+  upi: { label: 'UPI', refLabel: 'Payment ID — UPI ID' },
+  card: { label: 'Card', refLabel: 'Payment ID — Card / auth ref' },
+  cheque: { label: 'Cheque', refLabel: 'Payment ID — Cheque no.' },
+  invoice: { label: 'Invoice', refLabel: 'Payment ID — Invoice no.' },
+  other: { label: 'Other', refLabel: 'Payment ID' },
+});
+
+const slugifyOption = (label) =>
+  String(label).trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);
+
+const titleizeOption = (key) =>
+  key.split('_').filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
+
+/** Categories + methods + types for the Finance dropdowns. */
+export async function listFinanceOptions() {
+  const [rows, usedCategories, usedMethods, usedTypes] = await Promise.all([
+    FinanceOption.find().lean(),
+    Transaction.distinct('category'),
+    Transaction.distinct('paymentMethod'),
+    Transaction.distinct('type'),
+  ]);
+
+  const types = new Map();
+  for (const [k, v] of Object.entries(BUILT_IN_TYPES)) types.set(k, { key: k, ...v, builtIn: true });
+  for (const r of rows.filter((r) => r.kind === 'type')) {
+    types.set(r.key, { key: r.key, label: r.label, direction: r.direction || 'out', builtIn: false });
+  }
+  for (const k of usedTypes) {
+    if (k && !types.has(k)) types.set(k, { key: k, label: titleizeOption(k), direction: 'out', builtIn: false });
+  }
+
+  const categories = new Map();
+  categories.set('uncategorized', { key: 'uncategorized', label: 'Uncategorized' });
+  for (const r of rows.filter((r) => r.kind === 'category')) {
+    categories.set(r.key, { key: r.key, label: r.label });
+  }
+  for (const k of usedCategories) {
+    if (k && !categories.has(k)) categories.set(k, { key: k, label: titleizeOption(k) });
+  }
+
+  const methods = new Map();
+  for (const k of PAYMENT_METHODS) methods.set(k, { key: k, ...BUILT_IN_METHODS[k], builtIn: true });
+  for (const r of rows.filter((r) => r.kind === 'method')) {
+    methods.set(r.key, { key: r.key, label: r.label, refLabel: r.refLabel ?? 'Payment ID', builtIn: false });
+  }
+  for (const k of usedMethods) {
+    if (k && !methods.has(k)) methods.set(k, { key: k, label: titleizeOption(k), refLabel: 'Payment ID', builtIn: false });
+  }
+
+  const sortOpts = (a, b) =>
+    (a.key === 'uncategorized' || a.key === 'other') - (b.key === 'uncategorized' || b.key === 'other') ||
+    a.label.localeCompare(b.label);
+  return {
+    categories: [...categories.values()].sort(sortOpts),
+    methods: [...methods.values()].sort(sortOpts),
+    // Built-ins first (income, expense), then custom types alphabetically.
+    types: [...types.values()].sort((a, b) => (b.builtIn === true) - (a.builtIn === true) || a.label.localeCompare(b.label)),
+  };
+}
+
+/** Resolve a type key to its accounting direction ('in' | 'out'). */
+async function typeDirection(typeKey) {
+  if (BUILT_IN_TYPES[typeKey]) return BUILT_IN_TYPES[typeKey].direction;
+  const row = await FinanceOption.findOne({ kind: 'type', key: typeKey }).lean();
+  return row?.direction === 'in' ? 'in' : 'out';
+}
+
+/** Explicit add from the UI — idempotent on {kind, slug(label)}. */
+export async function addFinanceOption({ kind, label, refLabel, direction }, userId) {
+  const key = slugifyOption(label);
+  if (!key) throw ApiError.badRequest('Invalid name');
+  if (kind === 'method' && BUILT_IN_METHODS[key]) {
+    return { key, ...BUILT_IN_METHODS[key], builtIn: true };
+  }
+  if (kind === 'type' && BUILT_IN_TYPES[key]) {
+    return { key, ...BUILT_IN_TYPES[key], builtIn: true };
+  }
+  if (kind === 'category' && key === 'uncategorized') {
+    return { key, label: 'Uncategorized' };
+  }
+  const doc = await FinanceOption.findOneAndUpdate(
+    { kind, key },
+    {
+      $setOnInsert: {
+        kind,
+        key,
+        label: String(label).trim(),
+        refLabel: kind === 'method' ? (refLabel ?? 'Payment ID') : '',
+        direction: kind === 'type' ? (direction === 'in' ? 'in' : 'out') : 'out',
+        createdBy: userId || null,
+      },
+    },
+    { upsert: true, new: true }
+  ).lean();
+  return { key: doc.key, label: doc.label, refLabel: doc.refLabel, direction: doc.direction, builtIn: false };
+}
+
+/** Auto-register unknown categories/methods on save so dropdowns learn them. */
+async function ensureFinanceOption(kind, value, userId) {
+  if (!value) return undefined;
+  const key = slugifyOption(value);
+  if (!key) return undefined;
+  const isKnownBuiltIn =
+    kind === 'method' ? Boolean(BUILT_IN_METHODS[key])
+    : kind === 'type' ? Boolean(BUILT_IN_TYPES[key])
+    : key === 'uncategorized';
+  if (!isKnownBuiltIn) {
+    await FinanceOption.updateOne(
+      { kind, key },
+      {
+        $setOnInsert: {
+          kind,
+          key,
+          label: titleizeOption(key),
+          refLabel: kind === 'method' ? 'Payment ID' : '',
+          createdBy: userId || null,
+        },
+      },
+      { upsert: true }
+    );
+  }
+  return key;
+}
+
+/** True when the method carries no reference id (cash-like) — clears paymentRef. */
+async function methodHasNoRef(methodKey) {
+  if (!methodKey) return false;
+  if (BUILT_IN_METHODS[methodKey]) return BUILT_IN_METHODS[methodKey].refLabel === '';
+  const row = await FinanceOption.findOne({ kind: 'method', key: methodKey }).lean();
+  return Boolean(row) && (row.refLabel ?? '') === '';
+}
+
 export async function createTransaction(data, user) {
   const customFields = data.customFields
     ? await validateCustomFields(ENTITY, data.customFields)
     : {};
 
+  if (data.category !== undefined) data.category = await ensureFinanceOption('category', data.category, user._id);
+  if (data.paymentMethod !== undefined) data.paymentMethod = await ensureFinanceOption('method', data.paymentMethod, user._id);
+  data.type = await ensureFinanceOption('type', data.type, user._id);
+
   const transaction = await Transaction.create({
     ...data,
-    // Cash payments never carry a reference id.
-    paymentRef: data.paymentMethod === 'cash' ? '' : data.paymentRef,
+    direction: await typeDirection(data.type),
+    // Cash-like methods never carry a reference id.
+    paymentRef: (await methodHasNoRef(data.paymentMethod)) ? '' : data.paymentRef,
     // A custom method label only applies to the 'other' method.
     paymentMethodOther: data.paymentMethod === 'other' ? data.paymentMethodOther : '',
     customFields,
@@ -98,11 +247,18 @@ export async function updateTransaction(id, data) {
   const transaction = await Transaction.findById(id);
   if (!transaction) throw ApiError.notFound('Transaction not found');
 
+  if (data.category !== undefined) data.category = await ensureFinanceOption('category', data.category, transaction.createdBy);
+  if (data.paymentMethod !== undefined) data.paymentMethod = await ensureFinanceOption('method', data.paymentMethod, transaction.createdBy);
+  if (data.type !== undefined) data.type = await ensureFinanceOption('type', data.type, transaction.createdBy);
+
   for (const f of UPDATABLE) if (data[f] !== undefined) transaction[f] = data[f];
 
-  // Cash never carries a payment reference — clear it whenever the (possibly
-  // just-updated) method resolves to cash.
-  if (transaction.paymentMethod === 'cash') transaction.paymentRef = '';
+  // Keep the accounting direction in sync with the (possibly changed) type.
+  transaction.direction = await typeDirection(transaction.type);
+
+  // Cash-like methods never carry a payment reference — clear it whenever the
+  // (possibly just-updated) method resolves to one.
+  if (await methodHasNoRef(transaction.paymentMethod)) transaction.paymentRef = '';
   // The custom label only applies to 'other'.
   if (transaction.paymentMethod !== 'other') transaction.paymentMethodOther = '';
 
@@ -149,17 +305,24 @@ export async function getSummary(query = {}) {
     { $match: { date: { $gte: from, $lte: to } } },
     {
       $facet: {
-        totals: [{ $group: { _id: '$type', total: { $sum: '$amount' } } }],
+        // Direction-based so admin-added types (kind 'type', direction in/out)
+        // roll into the right bucket automatically.
+        totals: [{ $group: { _id: '$direction', total: { $sum: '$amount' } } }],
         byCategory: [
-          { $group: { _id: { category: '$category', type: '$type' }, total: { $sum: '$amount' } } },
+          {
+            $group: {
+              _id: { category: '$category', type: '$type', direction: '$direction' },
+              total: { $sum: '$amount' },
+            },
+          },
           { $sort: { total: -1 } },
         ],
         monthly: [
           {
             $group: {
               _id: { $dateToString: { format: '%Y-%m', date: '$date' } },
-              income: { $sum: { $cond: [{ $eq: ['$type', 'income'] }, '$amount', 0] } },
-              expense: { $sum: { $cond: [{ $eq: ['$type', 'expense'] }, '$amount', 0] } },
+              income: { $sum: { $cond: [{ $eq: ['$direction', 'in'] }, '$amount', 0] } },
+              expense: { $sum: { $cond: [{ $ne: ['$direction', 'in'] }, '$amount', 0] } },
             },
           },
           { $sort: { _id: 1 } },
@@ -168,13 +331,14 @@ export async function getSummary(query = {}) {
     },
   ]);
 
-  const totalsByType = Object.fromEntries((agg?.totals || []).map((t) => [t._id, t.total]));
-  const income = totalsByType.income || 0;
-  const expense = totalsByType.expense || 0;
+  const totalsByDirection = Object.fromEntries((agg?.totals || []).map((t) => [t._id, t.total]));
+  const income = totalsByDirection.in || 0;
+  const expense = totalsByDirection.out || 0;
 
   const byCategory = (agg?.byCategory || []).map((c) => ({
     category: c._id.category,
     type: c._id.type,
+    direction: c._id.direction || 'out',
     total: c.total,
   }));
 
@@ -193,9 +357,13 @@ export async function getSummary(query = {}) {
     ],
   }).sort({ createdAt: 1 });
 
-  const expenseByCategory = new Map(
-    byCategory.filter((c) => c.type === 'expense').map((c) => [c.category, c.total])
-  );
+  // Budget spend = every money-out category total (custom out-types included).
+  const expenseByCategory = new Map();
+  for (const c of byCategory) {
+    if (c.direction !== 'in') {
+      expenseByCategory.set(c.category, (expenseByCategory.get(c.category) || 0) + c.total);
+    }
+  }
 
   const budgetUsage = budgets.map((b) => {
     const spent = expenseByCategory.get(b.category) || 0;

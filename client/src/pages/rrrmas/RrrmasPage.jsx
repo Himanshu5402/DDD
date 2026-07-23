@@ -44,6 +44,8 @@ import {
   renewalsApi,
   campaignsApi,
   ticketsApi,
+  CONTACT_TYPES,
+  CONTACT_STATUSES,
   RENEWAL_STATUSES,
   CAMPAIGN_CHANNELS,
   CAMPAIGN_STATUSES,
@@ -84,8 +86,21 @@ const STATUS_COLORS = {
   contacted: 'warning', waiting: 'warning', paused: 'warning', on_hold: 'warning', due: 'warning',
   cancelled: 'default', expired: 'default', lost: 'default', closed: 'default', inactive: 'default', draft: 'default',
   low: 'default', medium: 'info', high: 'warning', urgent: 'error',
+  supplier: 'secondary',
 };
 const chipColor = (v) => STATUS_COLORS[v] || 'default';
+
+// Origin chip for mirrored contacts — ERP/PEPSI rows are synced from those systems.
+const SOURCE_SYSTEM_META = {
+  erp: { label: 'ERP', color: 'info' },
+  pepsi: { label: 'PEPSI', color: 'secondary' },
+};
+
+function SourceSystemChip({ value }) {
+  const meta = SOURCE_SYSTEM_META[value];
+  if (!meta) return <Chip size="small" variant="outlined" label="Manual" sx={{ color: 'text.secondary' }} />;
+  return <Chip size="small" variant="outlined" color={meta.color} label={meta.label} />;
+}
 
 // Preset highlight colours for the manual per-row colour picker in the Renewals list.
 const ROW_COLORS = ['#ef4444', '#f59e0b', '#eab308', '#22c55e', '#14b8a6', '#3b82f6', '#8b5cf6', '#ec4899'];
@@ -317,13 +332,18 @@ function RecordDialog({ open, onClose, onSave, saving, error, resource, record, 
 function ResourcePanel({ resource, perms, refData }) {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
+  const [filterValue, setFilterValue] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [saveError, setSaveError] = useState('');
 
   const query = useQuery({
-    queryKey: [resource.queryKey, search],
-    queryFn: () => resource.api.list({ limit: 100, ...(search ? { search } : {}) }),
+    queryKey: [resource.queryKey, search, filterValue],
+    queryFn: () => resource.api.list({
+      limit: 100,
+      ...(search ? { search } : {}),
+      ...(resource.filter && filterValue ? { [resource.filter.name]: filterValue } : {}),
+    }),
   });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: [resource.queryKey] });
@@ -369,6 +389,21 @@ function ResourcePanel({ resource, perms, refData }) {
           onChange={(e) => setSearch(e.target.value)}
           InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
         />
+        {resource.filter && (
+          <TextField
+            select
+            size="small"
+            label={resource.filter.label}
+            value={filterValue}
+            onChange={(e) => setFilterValue(e.target.value)}
+            sx={{ minWidth: 140 }}
+          >
+            <MenuItem value=""><em>All</em></MenuItem>
+            {resource.filter.options.map((o) => (
+              <MenuItem key={o} value={o}>{humanize(o)}</MenuItem>
+            ))}
+          </TextField>
+        )}
         {total != null && <Chip label={`${total} total`} size="small" />}
         <Box sx={{ flex: 1 }} />
         {perms.create && (
@@ -401,6 +436,9 @@ function ResourcePanel({ resource, perms, refData }) {
             <TableBody>
               {rows.map((row) => {
                 const rc = spaced ? (row.color || null) : null;
+                // Truthy = tooltip text explaining why this row can't be edited
+                // or deleted here (e.g. ERP-mirrored contacts).
+                const locked = resource.rowLocked ? resource.rowLocked(row) : null;
                 // Card-style rows: light border all around (row colour, or the
                 // theme divider when none) with a faint tint, plus vertical gaps.
                 const rowSx = spaced
@@ -440,13 +478,21 @@ function ResourcePanel({ resource, perms, refData }) {
                             <RowColorPicker value={row.color} onPick={(color) => colorMutation.mutate({ id: row._id, color })} />
                           )}
                           {perms.update && (
-                            <Tooltip title="Edit">
-                              <IconButton size="small" onClick={() => openEdit(row)}><EditIcon fontSize="small" /></IconButton>
+                            <Tooltip title={locked || 'Edit'}>
+                              <span>
+                                <IconButton size="small" disabled={Boolean(locked)} onClick={() => openEdit(row)}>
+                                  <EditIcon fontSize="small" />
+                                </IconButton>
+                              </span>
                             </Tooltip>
                           )}
                           {perms.delete && (
-                            <Tooltip title="Delete">
-                              <IconButton size="small" color="error" onClick={() => handleDelete(row)}><DeleteIcon fontSize="small" /></IconButton>
+                            <Tooltip title={locked || 'Delete'}>
+                              <span>
+                                <IconButton size="small" color="error" disabled={Boolean(locked)} onClick={() => handleDelete(row)}>
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </span>
                             </Tooltip>
                           )}
                         </Box>
@@ -579,6 +625,35 @@ const RESOURCES = [
       { name: 'comment', label: 'Add comment', type: 'text', full: true },
     ],
   },
+  {
+    key: 'contacts', tabLabel: 'Contacts', singular: 'Contact', queryKey: 'rrrmas-contacts', api: contactsApi,
+    filter: { name: 'type', label: 'Type', options: CONTACT_TYPES },
+    // ERP-mirrored contacts are managed in the ERP section — the server rejects
+    // edits/deletes with 409 ERP_MANAGED; grey the buttons out up front.
+    // PEPSI rows stay editable (the server writes through to the portal).
+    rowLocked: (r) => (r.sourceSystem === 'erp' ? 'Managed via the ERP section' : null),
+    columns: [
+      { key: 'name', label: 'Name', primary: true },
+      { key: 'type', label: 'Type', chip: true },
+      { key: 'company', label: 'Company' },
+      { key: 'email', label: 'Email' },
+      { key: 'phone', label: 'Phone' },
+      { key: 'status', label: 'Status', chip: true },
+      { key: 'sourceSystem', label: 'Source', render: (r) => <SourceSystemChip value={r.sourceSystem} /> },
+    ],
+    fields: [
+      { name: 'name', label: 'Name', type: 'text', required: true },
+      { name: 'type', label: 'Type', type: 'select', options: CONTACT_TYPES, default: 'lead' },
+      { name: 'company', label: 'Company', type: 'text' },
+      { name: 'email', label: 'Email', type: 'text' },
+      { name: 'phone', label: 'Phone', type: 'text' },
+      { name: 'status', label: 'Status', type: 'select', options: CONTACT_STATUSES, default: 'new' },
+      { name: 'source', label: 'Lead source', type: 'text', help: 'e.g. referral, website' },
+      { name: 'owner', label: 'Owner', type: 'ref', source: 'users' },
+      { name: 'tags', label: 'Tags', type: 'tags' },
+      { name: 'notes', label: 'Notes', type: 'textarea', full: true },
+    ],
+  },
 ];
 
 // --- Page -------------------------------------------------------------------
@@ -617,7 +692,7 @@ export default function RrrmasPage() {
     <Box>
       <PageHeader
         title="RRRMAS"
-        subtitle="Renewals, Marketing & Support."
+        subtitle="Renewals, Marketing, Support & Contacts."
       />
 
       <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', mb: 3 }}>

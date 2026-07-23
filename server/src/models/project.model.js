@@ -169,6 +169,22 @@ const projectSchema = new Schema(
         status: { type: String, default: '' }, // Draft / Client Review / Approved / Rejected
       },
     ],
+    // Portal-side blocked flag (PEPSI p.blocked).
+    blocked: { type: Boolean, default: false },
+    // Itemized portal expenses (read-only mirror of PEPSI EXP rows).
+    expensesExternal: [
+      {
+        externalId: { type: String, default: '' }, // e.g. EXP-0341
+        category: { type: String, default: '' }, // Travel / Site Labour / …
+        amount: { type: Number, default: 0 }, // ₹
+        by: { type: String, default: '' },
+        date: { type: String, default: '' }, // portal-formatted, e.g. "03 Jul"
+        status: { type: String, default: '' }, // Submitted / PM Approved / … / Rejected
+        paid: { type: String, default: '' }, // Company / Employee
+        note: { type: String, default: '' },
+        rejectReason: { type: String, default: '' },
+      },
+    ],
     lastSyncedAt: { type: Date },
   },
   {

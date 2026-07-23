@@ -16,6 +16,7 @@ import goalsRoutes from '../modules/goals/goals.routes.js';
 import rrrmasRoutes from '../modules/rrrmas/rrrmas.routes.js';
 import productsRoutes from '../modules/products/products.routes.js';
 import financeRoutes from '../modules/finance/finance.routes.js';
+import erpRoutes from '../modules/erp/erp.routes.js';
 import maintenanceRoutes from '../modules/maintenance/maintenance.routes.js';
 import employeeAnalyticsRoutes from '../modules/employeeAnalytics/employeeAnalytics.routes.js';
 import leaveRoutes from '../modules/leave/leave.routes.js';
@@ -26,6 +27,7 @@ import dashboardRoutes from '../modules/dashboard/dashboard.routes.js';
 import notificationsRoutes from '../modules/notifications/notifications.routes.js';
 import pepsiRoutes from '../modules/integrations/pepsi.routes.js';
 import hrmsRoutes from '../modules/integrations/hrms.routes.js';
+import erpIntegrationRoutes from '../modules/integrations/erp.routes.js';
 
 const router = Router();
 
@@ -70,6 +72,7 @@ router.use('/goals', goalsRoutes);
 router.use('/rrrmas', rrrmasRoutes);
 router.use('/products', productsRoutes);
 router.use('/finance', financeRoutes);
+router.use('/erp', erpRoutes);
 router.use('/maintenance', maintenanceRoutes);
 router.use('/employee-analytics', employeeAnalyticsRoutes);
 router.use('/leave', leaveRoutes);
@@ -80,5 +83,6 @@ router.use('/dashboard', dashboardRoutes);
 router.use('/notifications', notificationsRoutes);
 router.use('/integrations/pepsi', pepsiRoutes);
 router.use('/integrations/hrms', hrmsRoutes);
+router.use('/integrations/erp', erpIntegrationRoutes);
 
 export default router;

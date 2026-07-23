@@ -9,6 +9,7 @@ import {
   idParamSchema,
   itemParamSchema,
   listProductsSchema,
+  createCategorySchema,
   createProductSchema,
   updateProductSchema,
   addVersionSchema,
@@ -27,6 +28,16 @@ router.use(authenticate);
  */
 
 router.get('/', authorize(M, ACTIONS.READ), validate({ query: listProductsSchema }), c.list);
+
+// Categories — declared before '/:id' so the literal path isn't shadowed.
+router.get('/categories', authorize(M, ACTIONS.READ), c.listCategories);
+router.post(
+  '/categories',
+  authorize(M, ACTIONS.CREATE),
+  validate({ body: createCategorySchema }),
+  auditAction({ action: ACTIONS.CREATE, module: M, entityType: 'ProductCategory', describe: (req) => `Added product category "${req.body.label}"` }),
+  c.addCategory
+);
 
 router.post(
   '/',

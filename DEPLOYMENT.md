@@ -170,5 +170,37 @@ curl -H "x-api-key: $KEY" http://192.168.1.10:5000/api/v1/integration/bootstrap 
 
 The shared key travels as a plaintext header — fine inside a LAN, **not** for the public internet. If you ever expose these apps publicly: put both behind a reverse proxy (nginx/Caddy) with HTTPS, keep the API ports closed to the outside, and point the integration URLs at the https:// addresses.
 
+## 8. Phase 2 — ERP & PEPSI integrations (same pattern, dedicated keys)
+
+**itsybizz-ERP** (`:9078`) and the **PEPSI portal** (`:9097`) plug into DDD exactly like HRMS, each with its OWN 64-char key pair (never reuse the HRMS key). Add to DDD `server/.env`:
+
+```env
+# --- ERP integration ---
+ERP_API_URL=http://<ERP_HOST>:9078/api
+ERP_INTEGRATION_API_KEY=<64-char key, same value as on the ERP machine>
+ERP_SYNC_ENABLED=true
+# --- PEPSI integration ---
+PEPSI_API_BASE=http://<PEPSI_HOST>:9097/api
+PEPSI_INTEGRATION_API_KEY=<64-char key, same value as on the PEPSI machine>
+PEPSI_SYNC_ENABLED=true
+# events + UI traffic share one limiter — raise it with integrations on
+RATE_LIMIT_MAX=2000
+```
+
+On the ERP machine (`itsybizz-erp/itsybizzerp/.env`) and the PEPSI machine (`pepsi-src/pepsi/.env`) — the same three vars on each, key matching its DDD-side counterpart above:
+
+```env
+DDD_API_URL=http://<DDD_HOST>:5500/api/v1      # your DDD port (local dev uses 8000)
+INTEGRATION_API_KEY=<that system's key>
+INTEGRATION_ENABLED=true
+```
+
+Firewall: open TCP **9078** (ERP) / **9097** (PEPSI) the same way as §3. Prod placeholder hostnames: `erpapi.itsybizz.com`, `pepsiapi.itsybizz.com`.
+
+- **Boot order doesn't matter** — every system runs standalone; missed events are converged any time via "Sync now" (ERP) / "Pull from PEPSI" in the DDD UI.
+- **Rollback** — set `INTEGRATION_ENABLED=false` on the source (or clear the key on DDD): nothing breaks, DDD mirrors just go stale; re-enable + sync to converge.
+- Verify: `curl -H "x-api-key: $KEY" http://<ERP_HOST>:9078/api/integration/bootstrap` and `curl -H "x-api-key: $KEY" http://<PEPSI_HOST>:9097/api/integration/projects` → both 200 (wrong key → 401).
+- ⚠️ `itsybizz-erp` and `pepsi-src` are **not git repositories** — back those trees up by other means before touching prod.
+
 ---
-*See `INTEGRATION_API.md` (same folder) for the full API reference of every integration endpoint, event, and socket channel.*
+*See `INTEGRATION_API.md` (same folder) for the full API reference of every integration endpoint, event, and socket channel — HRMS in §1–7, ERP & PEPSI in §8–23.*

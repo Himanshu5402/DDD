@@ -12,6 +12,7 @@ import {
   createTransactionSchema,
   updateTransactionSchema,
   listBudgetsSchema,
+  createFinanceOptionSchema,
   createBudgetSchema,
   updateBudgetSchema,
   summaryQuerySchema,
@@ -125,6 +126,21 @@ router.use(authenticate);
 
 router.use('/transactions', transactionsRouter);
 router.use('/budgets', budgetsRouter);
+
+// Dynamic dropdown options (categories + payment methods) — admin-customizable.
+router.get('/options', authorize(M, ACTIONS.READ), transactionsC.listOptions);
+router.post(
+  '/options',
+  authorize(M, ACTIONS.CREATE),
+  validate({ body: createFinanceOptionSchema }),
+  auditAction({
+    action: ACTIONS.CREATE,
+    module: M,
+    entityType: 'FinanceOption',
+    describe: (req) => `Added finance ${req.body.kind} "${req.body.label}"`,
+  }),
+  transactionsC.addOption
+);
 
 router.get(
   '/summary',

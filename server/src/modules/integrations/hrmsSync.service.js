@@ -22,7 +22,7 @@ import LeaveRequest from '../../models/leaveRequest.model.js';
 import JobPosition from '../../models/jobPosition.model.js';
 import Candidate from '../../models/candidate.model.js';
 import PayrollPeriod from '../../models/payrollPeriod.model.js';
-import DailyReport from '../../models/dailyReport.model.js';
+import DailyReport, { ATTACHMENT_TYPES } from '../../models/dailyReport.model.js';
 import { broadcast } from '../../socket/index.js';
 import * as hrmsClient from '../../services/integrations/hrms.client.js';
 import { submitReport } from '../reporting/reporting.service.js';
@@ -413,6 +413,28 @@ export async function applyOffer(doc) {
 /* =========================== Evening reports ========================== */
 
 /**
+ * HRMS attachment wire shape {url,key,type,name,size,mimeType} → DailyReport
+ * attachment subdocs. Defensive: rows without a url or with a type outside
+ * image|video are dropped, and the array is capped at 10 (the reporting
+ * validation's own limit). Returns null when the payload carries no
+ * attachments array at all, so old-shape events leave the mirror untouched.
+ */
+function mapReportAttachments(list) {
+  if (!Array.isArray(list)) return null;
+  return list
+    .filter((a) => a?.url && ATTACHMENT_TYPES.includes(a.type))
+    .slice(0, 10)
+    .map((a) => ({
+      url: String(a.url),
+      key: a.key ? String(a.key) : '',
+      type: a.type,
+      name: a.name ? String(a.name) : '',
+      size: Math.max(0, Number(a.size) || 0),
+      mimeType: a.mimeType ? String(a.mimeType) : '',
+    }));
+}
+
+/**
  * HRMS EveningReport → DDD DailyReport mirror (externalId = ER code).
  *
  * With `notify` (the live report.submitted event) the upsert goes through the
@@ -433,6 +455,10 @@ export async function upsertEveningReport(doc, { notify = true } = {}) {
     blockers: doc.blockers || '',
     hoursWorked: Math.min(24, Math.max(0, Number(doc.hours) || 8)),
   };
+  // Cloudinary photos/videos travel as absolute URLs — mirror them verbatim,
+  // replacing the stored array wholesale (resubmit semantics, like HRMS).
+  const attachments = mapReportAttachments(doc.attachments);
+  if (attachments) fields.attachments = attachments;
 
   let report;
   if (notify) {

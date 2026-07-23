@@ -6,6 +6,7 @@ import WorkOutlineIcon from '@mui/icons-material/WorkOutline';
 import Inventory2Icon from '@mui/icons-material/Inventory2';
 import PaymentsIcon from '@mui/icons-material/Payments';
 import BuildIcon from '@mui/icons-material/Build';
+import FactoryIcon from '@mui/icons-material/Factory';
 import InsightsIcon from '@mui/icons-material/Insights';
 import EventBusyIcon from '@mui/icons-material/EventBusy';
 import PersonSearchIcon from '@mui/icons-material/PersonSearch';
@@ -46,6 +47,7 @@ export const NAV_SECTIONS = [
       { label: 'Products', to: '/products', icon: Inventory2Icon, module: 'products', action: 'read', ready: true },
       { label: 'Finance', to: '/finance', icon: PaymentsIcon, module: 'finance', action: 'read', ready: true },
       { label: 'Maintenance', to: '/maintenance', icon: BuildIcon, module: 'maintenance', action: 'read', ready: true },
+      { label: 'ERP', to: '/erp', icon: FactoryIcon, module: 'erp', action: 'read', ready: true },
     ],
   },
   {

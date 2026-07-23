@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Box, Paper, Typography, Grid, Chip, LinearProgress, CircularProgress, Alert,
-  Drawer, IconButton, Divider, Stack, Tooltip, Avatar,
+  Drawer, IconButton, Divider, Stack, Tooltip, Avatar, Button, Snackbar,
 } from '@mui/material';
 import Masonry from '@mui/lab/Masonry';
 import CloseIcon from '@mui/icons-material/Close';
@@ -13,8 +13,10 @@ import SyncIcon from '@mui/icons-material/Sync';
 import FlagIcon from '@mui/icons-material/OutlinedFlag';
 import RequestQuoteIcon from '@mui/icons-material/RequestQuote';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import BlockIcon from '@mui/icons-material/Block';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import api, { getErrorMessage } from '../../lib/axios.js';
+import { integrationsApi, pepsiErrorMessage } from '../../api/integrations.api.js';
 import { getSocket, connectSocket } from '../../lib/socket.js';
 
 // ---------- formatting helpers ----------
@@ -110,6 +112,11 @@ const MILESTONE_COLOR = {
 
 // Portal execution-data status colours (drawer sections).
 const NCR_STATUS_COLOR = { Open: 'error', CAPA: 'warning', Closed: 'success' };
+// Portal expense workflow: Draft → Submitted → PM → Finance → Booked / Reimbursed.
+const EXPENSE_STATUS_COLOR = {
+  Draft: 'default', Submitted: 'default', 'PM Approved': 'info', 'Finance Verified': 'info',
+  Booked: 'success', Reimbursed: 'success', Rejected: 'error',
+};
 const TEST_STATUS_COLOR = { PASS: 'success', RUNNING: 'info', PLANNED: 'default', BLOCKED: 'error', FAIL: 'error' };
 const CR_STATUS_COLOR = { Approved: 'success', 'Client Review': 'warning', Rejected: 'error', Draft: 'default' };
 const STAGE_DOT = { Completed: '#059669', 'In Progress': '#0284C7', Blocked: '#DC2626', Pending: '#CBD5E1' };
@@ -145,6 +152,7 @@ function HealthChip({ health, size = 'small', sx }) {
 export default function ProjectsOverviewPage() {
   const qc = useQueryClient();
   const [selected, setSelected] = useState(null);
+  const [snack, setSnack] = useState(null); // { severity, message }
 
   const projectsQuery = useQuery({
     queryKey: ['projects-overview'],
@@ -156,10 +164,17 @@ export default function ProjectsOverviewPage() {
 
   const statusQuery = useQuery({
     queryKey: ['pepsi-status'],
-    queryFn: async () => {
-      const res = await api.get('/integrations/pepsi/status');
-      return res.data.data;
+    queryFn: integrationsApi.pepsiStatus,
+  });
+
+  const pullMutation = useMutation({
+    mutationFn: integrationsApi.pepsiPull,
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['projects-overview'] });
+      qc.invalidateQueries({ queryKey: ['pepsi-status'] });
+      setSnack({ severity: 'success', message: res?.message || 'PEPSI pull complete' });
     },
+    onError: (err) => setSnack({ severity: 'error', message: pepsiErrorMessage(err, 'PEPSI pull failed') }),
   });
 
   useEffect(() => {
@@ -197,15 +212,26 @@ export default function ProjectsOverviewPage() {
         title="Projects"
         subtitle="Portfolio synced from the PEPSI execution portal — read-only here."
         action={
-          statusQuery.data && (
-            <Chip
-              icon={<SyncIcon />}
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap', rowGap: 1 }}>
+            {statusQuery.data && (
+              <Chip
+                icon={<SyncIcon />}
+                size="small"
+                label={`PEPSI · ${statusQuery.data.projects} projects · synced ${statusQuery.data.lastSyncedAt ? formatDate(statusQuery.data.lastSyncedAt) : 'never'}`}
+                variant="outlined"
+                sx={{ color: 'text.secondary' }}
+              />
+            )}
+            <Button
               size="small"
-              label={`PEPSI · ${statusQuery.data.projects} projects · synced ${statusQuery.data.lastSyncedAt ? formatDate(statusQuery.data.lastSyncedAt) : 'never'}`}
-              variant="outlined"
-              sx={{ color: 'text.secondary' }}
-            />
-          )
+              variant="contained"
+              startIcon={<SyncIcon />}
+              disabled={pullMutation.isPending}
+              onClick={() => pullMutation.mutate()}
+            >
+              {pullMutation.isPending ? 'Pulling…' : 'Pull from PEPSI'}
+            </Button>
+          </Stack>
         }
       />
 
@@ -239,6 +265,17 @@ export default function ProjectsOverviewPage() {
       )}
 
       <ProjectDrawer project={selected} onClose={() => setSelected(null)} />
+
+      <Snackbar
+        open={Boolean(snack)}
+        autoHideDuration={5000}
+        onClose={() => setSnack(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity={snack?.severity || 'info'} onClose={() => setSnack(null)} variant="filled">
+          {snack?.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }
@@ -308,6 +345,9 @@ function ProjectCard({ project: p, onClick, ...props }) {
             </Typography>
           </Box>
           <Stack direction="row" spacing={0.75} sx={{ flexShrink: 0 }}>
+            {p.blocked && (
+              <Chip label="Blocked" size="small" sx={{ height: 22, fontSize: 10.5, ...SOFT.error }} />
+            )}
             {p.workType && (
               <Chip
                 label={p.workType}
@@ -485,6 +525,14 @@ function ProjectDrawer({ project: p, onClose }) {
         </Box>
 
         <Stack direction="row" spacing={0.75} sx={{ mt: 1.5, flexWrap: 'wrap', rowGap: 0.75 }}>
+          {p.blocked && (
+            <Chip
+              icon={<BlockIcon sx={{ fontSize: 14, color: '#B91C1C !important' }} />}
+              label="Blocked"
+              size="small"
+              sx={SOFT.error}
+            />
+          )}
           <HealthChip health={health} />
           {p.workType && (
             <Chip label={p.workType} size="small" variant="outlined" sx={{ color: 'text.secondary' }} />
@@ -649,6 +697,45 @@ function ProjectDrawer({ project: p, onClose }) {
                 </Box>
               );
             })}
+          </Section>
+        )}
+
+        {/* Expenses (portal-owned, read-only) */}
+        {p.expensesExternal?.length > 0 && (
+          <Section title="Expenses">
+            {p.expensesExternal.map((e, i) => (
+              <Paper key={e._id || e.externalId || i} elevation={0} sx={{ p: 1.75, mb: 1.25, border: '1px solid', borderColor: 'divider', borderRadius: 2.5 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 700 }}>{e.externalId}</Typography>
+                  <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
+                    {e.paid && (
+                      <Chip label={`Paid: ${e.paid}`} size="small" variant="outlined" sx={{ height: 18, fontSize: 9.5, color: 'text.secondary' }} />
+                    )}
+                    {e.status && (
+                      <Chip label={e.status} size="small" color={EXPENSE_STATUS_COLOR[e.status] || 'default'} sx={{ height: 18, fontSize: 9.5 }} />
+                    )}
+                  </Stack>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
+                  <Typography variant="body2">{e.category || '—'}</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 700, flexShrink: 0 }}>{formatINR(e.amount)}</Typography>
+                </Box>
+                <Typography variant="caption" color="text.secondary">
+                  {/* `date` is the portal's display string (e.g. "03 Jul") — render as-is. */}
+                  {e.by || '—'}{e.date ? ` · ${e.date}` : ''}
+                </Typography>
+                {e.note && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                    {e.note}
+                  </Typography>
+                )}
+                {e.rejectReason && (
+                  <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'error.main' }}>
+                    <b>Rejected:</b> {e.rejectReason}
+                  </Typography>
+                )}
+              </Paper>
+            ))}
           </Section>
         )}
 

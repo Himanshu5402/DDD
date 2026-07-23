@@ -2,7 +2,10 @@ import mongoose from 'mongoose';
 
 const { Schema } = mongoose;
 
+// Built-in types; the set is open — admin-added types live in FinanceOption
+// (kind 'type'), each carrying a direction ('in'|'out') for the accounting.
 export const TRANSACTION_TYPES = Object.freeze(['income', 'expense']);
+export const TRANSACTION_DIRECTIONS = Object.freeze(['in', 'out']);
 export const PAYMENT_METHODS = Object.freeze(['cash', 'bank', 'upi', 'card', 'cheque', 'invoice', 'other']);
 // Models a transaction can be loosely linked to ('' = no link).
 export const LINKABLE_MODELS = Object.freeze(['', 'Contact', 'Project', 'Renewal', 'Asset', 'Product']);
@@ -26,7 +29,11 @@ const linkedToSchema = new Schema(
 
 const transactionSchema = new Schema(
   {
-    type: { type: String, enum: TRANSACTION_TYPES, required: true, index: true },
+    // Open set: built-in income/expense + admin-added FinanceOption types.
+    type: { type: String, required: true, trim: true, lowercase: true, index: true },
+    // Denormalized from the type's option at save time — every aggregate
+    // (summary, dashboard, budgets) branches on this, never on `type`.
+    direction: { type: String, enum: TRANSACTION_DIRECTIONS, default: 'out', index: true },
     amount: { type: Number, required: true, min: 0.01 },
     currency: { type: String, default: 'INR' },
     date: { type: Date, required: true, default: Date.now, index: true },
@@ -36,7 +43,8 @@ const transactionSchema = new Schema(
     category: { type: String, trim: true, default: 'uncategorized', index: true },
 
     description: { type: String, default: '' },
-    paymentMethod: { type: String, enum: PAYMENT_METHODS, default: 'bank' },
+    // Open set: built-in PAYMENT_METHODS + admin-added FinanceOption methods.
+    paymentMethod: { type: String, default: 'bank', trim: true, lowercase: true },
 
     // Reference / id for the payment: UPI id, bank UTR/IMPS ref, card auth ref,
     // cheque number, etc. Not applicable to cash — the form hides this field and

@@ -1,7 +1,25 @@
 import { z } from 'zod';
-import { PROJECT_STATUSES } from '../../models/project.model.js';
+import {
+  PROJECT_STATUSES,
+  PROJECT_SOURCES,
+  PROJECT_HEALTH,
+  PROJECT_WORK_TYPES,
+} from '../../models/project.model.js';
 
 const objectId = z.string().regex(/^[a-f\d]{24}$/i, 'Invalid id');
+
+// PEPSI write-through fields (contract §3.3). Present on create so the owner
+// can create a project IN the portal (source:'pepsi'), and on update so edits
+// to portal-owned fields forward before the mirror refreshes.
+const pepsiWritableFields = {
+  location: z.string().trim().max(200).optional(),
+  workType: z.enum(PROJECT_WORK_TYPES).optional(),
+  contractValue: z.number().min(0).optional(),
+  pmName: z.string().trim().max(120).optional(),
+  statusNote: z.string().trim().max(2000).optional(),
+  health: z.enum(PROJECT_HEALTH).optional(),
+  blocked: z.boolean().optional(),
+};
 
 export const idParamSchema = z.object({ id: objectId });
 
@@ -29,6 +47,9 @@ export const createProjectSchema = z.object({
   progress: z.number().int().min(0).max(100).optional(),
   tags: z.array(z.string().trim()).optional(),
   customFields: z.record(z.any()).optional(),
+  source: z.enum(PROJECT_SOURCES).optional(),
+  customerExternalId: z.string().trim().max(60).optional(),
+  ...pepsiWritableFields,
 });
 
 export const updateProjectSchema = z.object({
@@ -44,4 +65,5 @@ export const updateProjectSchema = z.object({
   progress: z.number().int().min(0).max(100).optional(),
   tags: z.array(z.string().trim()).optional(),
   customFields: z.record(z.any()).optional(),
+  ...pepsiWritableFields,
 });

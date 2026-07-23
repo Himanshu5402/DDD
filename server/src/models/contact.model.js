@@ -2,7 +2,10 @@ import mongoose from 'mongoose';
 
 const { Schema } = mongoose;
 
-export const CONTACT_TYPES = Object.freeze(['lead', 'customer']);
+export const CONTACT_TYPES = Object.freeze(['lead', 'customer', 'supplier']);
+// System of origin for mirrored contacts (named sourceSystem because `source`
+// already means the free-text lead source, e.g. "referral").
+export const CONTACT_SOURCE_SYSTEMS = Object.freeze(['manual', 'erp', 'pepsi']);
 export const CONTACT_STATUSES = Object.freeze([
   'new',
   'contacted',
@@ -22,6 +25,17 @@ const contactSchema = new Schema(
 
     status: { type: String, enum: CONTACT_STATUSES, default: 'new', index: true },
     source: { type: String, trim: true, default: '' },
+
+    // Integration mirror keys: which system owns this contact and its id there
+    // (ERP supplier/customer Mongo _id, PEPSI CUST-xxx / OPP-xxxx). Unique
+    // sparse so manual contacts without one coexist.
+    sourceSystem: {
+      type: String,
+      enum: CONTACT_SOURCE_SYSTEMS,
+      default: 'manual',
+      index: true,
+    },
+    externalId: { type: String, trim: true, unique: true, sparse: true },
 
     owner: { type: Schema.Types.ObjectId, ref: 'User', default: null, index: true },
     tags: [{ type: String, trim: true }],

@@ -26,6 +26,7 @@ import {
   Divider,
   Stack,
   Link,
+  Snackbar,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
@@ -35,19 +36,13 @@ import CloseIcon from '@mui/icons-material/Close';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import {
   productsApi,
-  PRODUCT_CATEGORIES,
-  PRODUCT_CATEGORY_LABELS,
   PRODUCT_STATUSES,
   PRODUCT_STATUS_LABELS,
-  ROADMAP_STATUS_LABELS,
 } from '../../api/products.api.js';
 import { getErrorMessage } from '../../lib/axios.js';
 import { getSocket, connectSocket } from '../../lib/socket.js';
 
 const STATUS_COLOR = { development: 'warning', active: 'success', deprecated: 'default' };
-const ROADMAP_STATUS_COLOR = { planned: 'default', in_progress: 'warning', released: 'success' };
-const NEXT_ROADMAP_STATUS = { planned: 'in_progress', in_progress: 'released' };
-const ADVANCE_LABEL = { planned: 'Start', in_progress: 'Mark released' };
 
 function statusChipColor(status) {
   return STATUS_COLOR[status] || 'default';
@@ -70,10 +65,7 @@ const EMPTY_FORM = {
   currentVersion: '',
   price: '',
   description: '',
-  docsUrl: '',
-  trainingUrl: '',
-  supportNotes: '',
-  tags: '',
+  specs: [], // free-form { name, value } rows — admin adds as many as needed
 };
 
 export default function ProductsPage() {
@@ -99,6 +91,18 @@ export default function ProductsPage() {
     queryKey: ['products', { search, category }],
     queryFn: () => productsApi.list(params),
   });
+
+  // Open category set: built-ins + admin-added (auto-registered on product save too).
+  const categoriesQuery = useQuery({
+    queryKey: ['products', 'categories'],
+    queryFn: productsApi.categories,
+    staleTime: 60_000,
+  });
+  const categories = categoriesQuery.data || [{ key: 'other', label: 'Other' }];
+  const catLabel = (k) => categories.find((c) => c.key === k)?.label || k;
+
+  const [catDialogOpen, setCatDialogOpen] = useState(false);
+  const [snack, setSnack] = useState('');
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['products'] });
@@ -186,11 +190,30 @@ export default function ProductsPage() {
           sx={{ minWidth: 220 }}
         >
           <MenuItem value="">All categories</MenuItem>
-          {PRODUCT_CATEGORIES.map((c) => (
-            <MenuItem key={c} value={c}>{PRODUCT_CATEGORY_LABELS[c]}</MenuItem>
+          {categories.map((c) => (
+            <MenuItem key={c.key} value={c.key}>{c.label}</MenuItem>
           ))}
         </TextField>
+        <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => setCatDialogOpen(true)}>
+          Add category
+        </Button>
       </Paper>
+
+      <AddCategoryDialog
+        open={catDialogOpen}
+        onClose={() => setCatDialogOpen(false)}
+        onAdded={(cat) => setSnack(`Category "${cat.label}" added — it's now available in the dropdowns`)}
+      />
+      <Snackbar
+        open={Boolean(snack)}
+        autoHideDuration={4000}
+        onClose={() => setSnack('')}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="success" variant="filled" onClose={() => setSnack('')}>
+          {snack}
+        </Alert>
+      </Snackbar>
 
       {listQuery.error && <Alert severity="error">{getErrorMessage(listQuery.error, 'Failed to load products')}</Alert>}
 
@@ -237,7 +260,7 @@ export default function ProductsPage() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <Chip label={PRODUCT_CATEGORY_LABELS[p.category] || p.category} size="small" variant="outlined" />
+                    <Chip label={catLabel(p.category)} size="small" variant="outlined" />
                   </TableCell>
                   <TableCell>{p.currentVersion || '—'}</TableCell>
                   <TableCell>
@@ -270,6 +293,7 @@ export default function ProductsPage() {
         product={editing}
         saving={saveMutation.isPending}
         error={saveError}
+        categories={categories}
       />
 
       <ProductDetailDrawer
@@ -278,15 +302,70 @@ export default function ProductsPage() {
         onClose={() => setDetailId(null)}
         onEdit={(product) => { setDetailId(null); openEdit(product); }}
         canEdit={canUpdate}
-        onChanged={invalidate}
+        catLabel={catLabel}
       />
     </Box>
   );
 }
 
+/** Small dialog to add a product category; used from the filter bar and the product form. */
+function AddCategoryDialog({ open, onClose, onAdded }) {
+  const qc = useQueryClient();
+  const [label, setLabel] = useState('');
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    if (open) { setLabel(''); setErr(''); }
+  }, [open]);
+
+  const m = useMutation({
+    mutationFn: () => productsApi.addCategory(label.trim()),
+    onSuccess: (cat) => {
+      qc.invalidateQueries({ queryKey: ['products', 'categories'] });
+      onAdded?.(cat);
+      onClose();
+    },
+    onError: (e) => setErr(getErrorMessage(e, 'Failed to add category')),
+  });
+
+  const canSave = label.trim().length >= 2 && !m.isPending;
+
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
+      <DialogTitle>Add category</DialogTitle>
+      <DialogContent>
+        {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
+        <TextField
+          label="Category name"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && canSave) m.mutate(); }}
+          placeholder="e.g. Training Kits"
+          autoFocus
+          fullWidth
+          sx={{ mt: 1 }}
+        />
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" onClick={() => m.mutate()} disabled={!canSave}>
+          {m.isPending ? 'Adding…' : 'Add'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 /** Create / edit form for a product's core fields. */
-function ProductDialog({ open, onClose, onSave, product, saving, error }) {
+function ProductDialog({ open, onClose, onSave, product, saving, error, categories = [] }) {
   const [form, setForm] = useState(EMPTY_FORM);
+  const [addCatOpen, setAddCatOpen] = useState(false);
+
+  // The Select must always have an option matching the current value (e.g. a
+  // just-added category that hasn't refetched yet, or an old custom one).
+  const categoryOptions = categories.some((c) => c.key === form.category)
+    ? categories
+    : [...categories, { key: form.category, label: form.category }];
 
   useEffect(() => {
     if (!open) return;
@@ -299,10 +378,7 @@ function ProductDialog({ open, onClose, onSave, product, saving, error }) {
         currentVersion: product.currentVersion || '',
         price: product.price ?? '',
         description: product.description || '',
-        docsUrl: product.docsUrl || '',
-        trainingUrl: product.trainingUrl || '',
-        supportNotes: product.supportNotes || '',
-        tags: (product.tags || []).join(', '),
+        specs: (product.specs || []).map((s) => ({ name: s.name || '', value: s.value || '' })),
       });
     } else {
       setForm(EMPTY_FORM);
@@ -311,16 +387,23 @@ function ProductDialog({ open, onClose, onSave, product, saving, error }) {
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
+  const setSpec = (i, key) => (e) =>
+    setForm((f) => ({
+      ...f,
+      specs: f.specs.map((s, idx) => (idx === i ? { ...s, [key]: e.target.value } : s)),
+    }));
+  const addSpec = () => setForm((f) => ({ ...f, specs: [...f.specs, { name: '', value: '' }] }));
+  const removeSpec = (i) => setForm((f) => ({ ...f, specs: f.specs.filter((_, idx) => idx !== i) }));
+
   const submit = () => {
     const payload = {
       name: form.name.trim(),
       category: form.category,
       status: form.status,
       description: form.description,
-      docsUrl: form.docsUrl.trim(),
-      trainingUrl: form.trainingUrl.trim(),
-      supportNotes: form.supportNotes,
-      tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),
+      specs: form.specs
+        .map((s) => ({ name: s.name.trim(), value: s.value.trim() }))
+        .filter((s) => s.name),
     };
 
     const sku = form.sku.trim();
@@ -350,10 +433,23 @@ function ProductDialog({ open, onClose, onSave, product, saving, error }) {
             <TextField label="SKU" value={form.sku} onChange={set('sku')} placeholder="e.g. PRD-001" sx={{ flex: 1, minWidth: 140 }} />
           </Box>
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            <TextField select label="Category" value={form.category} onChange={set('category')} sx={{ flex: 1, minWidth: 200 }}>
-              {PRODUCT_CATEGORIES.map((c) => (
-                <MenuItem key={c} value={c}>{PRODUCT_CATEGORY_LABELS[c]}</MenuItem>
+            <TextField
+              select
+              label="Category"
+              value={form.category}
+              onChange={(e) => {
+                if (e.target.value === '__add__') { setAddCatOpen(true); return; }
+                set('category')(e);
+              }}
+              sx={{ flex: 1, minWidth: 200 }}
+            >
+              {categoryOptions.map((c) => (
+                <MenuItem key={c.key} value={c.key}>{c.label}</MenuItem>
               ))}
+              <Divider />
+              <MenuItem value="__add__" sx={{ color: 'primary.main', fontWeight: 600 }}>
+                + Add new category…
+              </MenuItem>
             </TextField>
             <TextField select label="Status" value={form.status} onChange={set('status')} sx={{ flex: 1, minWidth: 200 }}>
               {PRODUCT_STATUSES.map((s) => (
@@ -366,12 +462,50 @@ function ProductDialog({ open, onClose, onSave, product, saving, error }) {
             <TextField label="Price (INR)" value={form.price} onChange={set('price')} type="number" inputProps={{ min: 0 }} sx={{ flex: 1, minWidth: 160 }} />
           </Box>
           <TextField label="Description" value={form.description} onChange={set('description')} fullWidth multiline minRows={2} />
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            <TextField label="Docs URL" value={form.docsUrl} onChange={set('docsUrl')} placeholder="https://…" sx={{ flex: 1, minWidth: 200 }} />
-            <TextField label="Training URL" value={form.trainingUrl} onChange={set('trainingUrl')} placeholder="https://…" sx={{ flex: 1, minWidth: 200 }} />
+
+          <Divider />
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box>
+              <Typography sx={{ fontWeight: 700, fontSize: 14 }}>Specifications</Typography>
+              <Typography variant="caption" color="text.secondary">
+                Add as many name/value specifications as this product needs (e.g. components of a CPU).
+              </Typography>
+            </Box>
+            <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={addSpec}>
+              Add field
+            </Button>
           </Box>
-          <TextField label="Support notes" value={form.supportNotes} onChange={set('supportNotes')} fullWidth multiline minRows={2} />
-          <TextField label="Tags" value={form.tags} onChange={set('tags')} fullWidth placeholder="comma, separated, tags" />
+          {form.specs.length === 0 && (
+            <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 1 }}>
+              No specifications yet — click "Add field" to add one.
+            </Typography>
+          )}
+          {form.specs.map((s, i) => (
+            // eslint-disable-next-line react/no-array-index-key
+            <Box key={i} sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
+              <TextField
+                size="small"
+                label={`Field ${i + 1} name`}
+                value={s.name}
+                onChange={setSpec(i, 'name')}
+                placeholder="e.g. Processor"
+                sx={{ flex: 1, minWidth: 140 }}
+              />
+              <TextField
+                size="small"
+                label="Value"
+                value={s.value}
+                onChange={setSpec(i, 'value')}
+                placeholder="e.g. Intel i7-12700"
+                sx={{ flex: 1.4, minWidth: 160 }}
+              />
+              <Tooltip title="Remove field">
+                <IconButton size="small" color="error" onClick={() => removeSpec(i)}>
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          ))}
         </Stack>
       </DialogContent>
       <DialogActions>
@@ -380,73 +514,25 @@ function ProductDialog({ open, onClose, onSave, product, saving, error }) {
           {saving ? 'Saving…' : 'Save'}
         </Button>
       </DialogActions>
+
+      <AddCategoryDialog
+        open={addCatOpen}
+        onClose={() => setAddCatOpen(false)}
+        onAdded={(cat) => setForm((f) => ({ ...f, category: cat.key }))}
+      />
     </Dialog>
   );
 }
 
-/** Side drawer: product detail, version history (release form) and upgrade roadmap. */
-function ProductDetailDrawer({ open, productId, onClose, onEdit, canEdit, onChanged }) {
-  const qc = useQueryClient();
-  const [version, setVersion] = useState('');
-  const [notes, setNotes] = useState('');
-  const [versionError, setVersionError] = useState('');
-  const [roadmapTitle, setRoadmapTitle] = useState('');
-  const [plannedFor, setPlannedFor] = useState('');
-  const [roadmapError, setRoadmapError] = useState('');
-
+/** Side drawer: product detail + specifications; everything edits via the Edit dialog. */
+function ProductDetailDrawer({ open, productId, onClose, onEdit, canEdit, catLabel }) {
   const detailQuery = useQuery({
     queryKey: ['product', productId],
     queryFn: () => productsApi.get(productId),
     enabled: open && Boolean(productId),
   });
 
-  useEffect(() => {
-    if (open) {
-      setVersion(''); setNotes(''); setVersionError('');
-      setRoadmapTitle(''); setPlannedFor(''); setRoadmapError('');
-    }
-  }, [open, productId]);
-
-  const refresh = () => {
-    qc.invalidateQueries({ queryKey: ['product', productId] });
-    onChanged?.();
-  };
-
-  const addVersionMutation = useMutation({
-    mutationFn: (body) => productsApi.addVersion(productId, body),
-    onSuccess: () => { setVersion(''); setNotes(''); setVersionError(''); refresh(); },
-    onError: (err) => setVersionError(getErrorMessage(err, 'Failed to add version')),
-  });
-
-  const addRoadmapMutation = useMutation({
-    mutationFn: (body) => productsApi.addRoadmapItem(productId, body),
-    onSuccess: () => { setRoadmapTitle(''); setPlannedFor(''); setRoadmapError(''); refresh(); },
-    onError: (err) => setRoadmapError(getErrorMessage(err, 'Failed to add roadmap item')),
-  });
-
-  const advanceMutation = useMutation({
-    mutationFn: ({ itemId, status }) => productsApi.updateRoadmapItem(productId, itemId, { status }),
-    onSuccess: () => { setRoadmapError(''); refresh(); },
-    onError: (err) => setRoadmapError(getErrorMessage(err, 'Failed to update roadmap item')),
-  });
-
   const product = detailQuery.data;
-  const history = [...(product?.versions || [])].sort(
-    (a, b) => new Date(b.releasedAt || 0) - new Date(a.releasedAt || 0)
-  );
-  const roadmap = product?.upgradeRoadmap || [];
-
-  const submitVersion = () => {
-    const v = version.trim();
-    if (!v) return;
-    addVersionMutation.mutate({ version: v, notes: notes.trim() || undefined });
-  };
-
-  const submitRoadmapItem = () => {
-    const title = roadmapTitle.trim();
-    if (!title) return;
-    addRoadmapMutation.mutate({ title, plannedFor: plannedFor.trim() || undefined });
-  };
 
   return (
     <Drawer anchor="right" open={open} onClose={onClose} PaperProps={{ sx: { width: { xs: '100%', sm: 480 } } }}>
@@ -465,7 +551,11 @@ function ProductDetailDrawer({ open, productId, onClose, onEdit, canEdit, onChan
           <Box sx={{ mt: 1.5 }}>
             <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', mb: 1.5 }}>
               {product.sku && <Chip label={product.sku} size="small" sx={{ fontFamily: 'monospace' }} />}
-              <Chip label={PRODUCT_CATEGORY_LABELS[product.category] || product.category} size="small" variant="outlined" />
+              <Chip
+                label={catLabel ? catLabel(product.category) : product.category}
+                size="small"
+                variant="outlined"
+              />
               <Chip label={PRODUCT_STATUS_LABELS[product.status] || product.status} size="small" color={statusChipColor(product.status)} />
               {product.currentVersion && <Chip label={`v${product.currentVersion}`} size="small" color="primary" variant="outlined" />}
               {product.price != null && <Chip label={formatPrice(product.price, product.currency)} size="small" variant="outlined" />}
@@ -501,131 +591,36 @@ function ProductDetailDrawer({ open, productId, onClose, onEdit, canEdit, onChan
               </>
             )}
 
+            {(product.specs || []).length > 0 && (
+              <>
+                <Typography variant="subtitle2" sx={{ mt: 1, mb: 0.5 }}>
+                  Specifications ({product.specs.length})
+                </Typography>
+                <Paper variant="outlined" sx={{ mb: 1.5, overflow: 'hidden' }}>
+                  <Table size="small">
+                    <TableBody>
+                      {product.specs.map((s) => (
+                        <TableRow key={s._id || s.name}>
+                          <TableCell sx={{ fontWeight: 600, width: '40%' }}>{s.name}</TableCell>
+                          <TableCell sx={{ color: 'text.secondary' }}>{s.value || '—'}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </Paper>
+              </>
+            )}
+
             {canEdit && (
-              <Button size="small" startIcon={<EditIcon fontSize="small" />} onClick={() => onEdit(product)} sx={{ mb: 1 }}>
+              <Button
+                variant="contained"
+                startIcon={<EditIcon fontSize="small" />}
+                onClick={() => onEdit(product)}
+                sx={{ mt: 1 }}
+                fullWidth
+              >
                 Edit product
               </Button>
-            )}
-
-            <Divider sx={{ my: 2 }} />
-
-            <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
-              Version history
-            </Typography>
-
-            {canEdit && (
-              <Paper elevation={0} sx={{ p: 1.5, mb: 2, border: '1px solid', borderColor: 'divider' }}>
-                {versionError && <Alert severity="error" sx={{ mb: 1 }}>{versionError}</Alert>}
-                <Stack spacing={1.25}>
-                  <TextField size="small" label="Version" placeholder="e.g. 1.3.0" value={version} onChange={(e) => setVersion(e.target.value)} fullWidth />
-                  <TextField size="small" label="Release notes" value={notes} onChange={(e) => setNotes(e.target.value)} fullWidth multiline minRows={2} />
-                  <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                    <Button
-                      size="small"
-                      variant="contained"
-                      startIcon={<AddIcon />}
-                      onClick={submitVersion}
-                      disabled={!version.trim() || addVersionMutation.isPending}
-                    >
-                      {addVersionMutation.isPending ? 'Releasing…' : 'Release version'}
-                    </Button>
-                  </Box>
-                </Stack>
-              </Paper>
-            )}
-
-            {history.length === 0 ? (
-              <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
-                No versions released yet.
-              </Typography>
-            ) : (
-              <Stack spacing={1.25}>
-                {history.map((v) => (
-                  <Paper key={v._id || v.version} elevation={0} sx={{ p: 1.5, border: '1px solid', borderColor: 'divider' }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-                      <Chip label={`v${v.version}`} size="small" color="primary" variant="outlined" />
-                      {v.releasedAt && (
-                        <Typography variant="caption" color="text.secondary">
-                          {new Date(v.releasedAt).toLocaleDateString()}
-                        </Typography>
-                      )}
-                    </Box>
-                    {v.notes && (
-                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75, whiteSpace: 'pre-wrap' }}>
-                        {v.notes}
-                      </Typography>
-                    )}
-                  </Paper>
-                ))}
-              </Stack>
-            )}
-
-            <Divider sx={{ my: 2 }} />
-
-            <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
-              Upgrade roadmap
-            </Typography>
-
-            {roadmapError && <Alert severity="error" sx={{ mb: 1 }}>{roadmapError}</Alert>}
-
-            {canEdit && (
-              <Paper elevation={0} sx={{ p: 1.5, mb: 2, border: '1px solid', borderColor: 'divider' }}>
-                <Stack spacing={1.25}>
-                  <TextField size="small" label="Title" placeholder="e.g. Mobile app support" value={roadmapTitle} onChange={(e) => setRoadmapTitle(e.target.value)} fullWidth />
-                  <TextField size="small" label="Planned for" placeholder="e.g. Q4 2026" value={plannedFor} onChange={(e) => setPlannedFor(e.target.value)} fullWidth />
-                  <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                    <Button
-                      size="small"
-                      variant="contained"
-                      startIcon={<AddIcon />}
-                      onClick={submitRoadmapItem}
-                      disabled={!roadmapTitle.trim() || addRoadmapMutation.isPending}
-                    >
-                      {addRoadmapMutation.isPending ? 'Adding…' : 'Add item'}
-                    </Button>
-                  </Box>
-                </Stack>
-              </Paper>
-            )}
-
-            {roadmap.length === 0 ? (
-              <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
-                No roadmap items yet.
-              </Typography>
-            ) : (
-              <Stack spacing={1.25}>
-                {roadmap.map((item) => (
-                  <Paper key={item._id} elevation={0} sx={{ p: 1.5, border: '1px solid', borderColor: 'divider' }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-                      <Box sx={{ minWidth: 0 }}>
-                        <Typography sx={{ fontWeight: 600, fontSize: 14 }}>{item.title}</Typography>
-                        {item.plannedFor && (
-                          <Typography variant="caption" color="text.secondary">
-                            Planned for {item.plannedFor}
-                          </Typography>
-                        )}
-                      </Box>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexShrink: 0 }}>
-                        <Chip
-                          label={ROADMAP_STATUS_LABELS[item.status] || item.status}
-                          size="small"
-                          color={ROADMAP_STATUS_COLOR[item.status] || 'default'}
-                        />
-                        {canEdit && NEXT_ROADMAP_STATUS[item.status] && (
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            onClick={() => advanceMutation.mutate({ itemId: item._id, status: NEXT_ROADMAP_STATUS[item.status] })}
-                            disabled={advanceMutation.isPending}
-                          >
-                            {ADVANCE_LABEL[item.status]}
-                          </Button>
-                        )}
-                      </Box>
-                    </Box>
-                  </Paper>
-                ))}
-              </Stack>
             )}
           </Box>
         )}

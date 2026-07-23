@@ -1,8 +1,27 @@
 import { z } from 'zod';
-import { TRANSACTION_TYPES, PAYMENT_METHODS, LINKABLE_MODELS } from '../../models/transaction.model.js';
+import { TRANSACTION_TYPES, LINKABLE_MODELS } from '../../models/transaction.model.js';
+import { FINANCE_OPTION_KINDS } from '../../models/financeOption.model.js';
 import { BUDGET_PERIODS } from '../../models/budget.model.js';
 
 const objectId = z.string().regex(/^[a-f\d]{24}$/i, 'Invalid id');
+
+// Payment methods / categories are an open set (built-ins + admin-added) —
+// validate the slug shape only; the service auto-registers unknown values.
+const optionSlug = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9][a-z0-9_ -]{0,59}$/, 'Invalid value');
+
+export const createFinanceOptionSchema = z.object({
+  kind: z.enum(FINANCE_OPTION_KINDS),
+  label: z.string().trim().min(2).max(40),
+  // Methods only: label for the Payment ID field; empty string = cash-like
+  // (no reference id, field hidden).
+  refLabel: z.string().trim().max(60).optional(),
+  // Types only: money-in (income-like) or money-out (expense-like).
+  direction: z.enum(['in', 'out']).optional(),
+});
 
 export const idParamSchema = z.object({ id: objectId });
 
@@ -18,9 +37,9 @@ export const listTransactionsSchema = z.object({
   page: z.coerce.number().int().positive().optional(),
   limit: z.coerce.number().int().positive().max(100).optional(),
   sort: z.string().optional(),
-  type: z.enum(TRANSACTION_TYPES).optional(),
+  type: optionSlug.optional(),
   category: z.string().optional(),
-  paymentMethod: z.enum(PAYMENT_METHODS).optional(),
+  paymentMethod: optionSlug.optional(),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
   search: z.string().optional(),
@@ -38,13 +57,13 @@ const linkedToSchema = z.object({
 });
 
 export const createTransactionSchema = z.object({
-  type: z.enum(TRANSACTION_TYPES),
+  type: optionSlug,
   amount: money(0.01),
   currency: z.string().trim().max(10).optional(),
   date: z.coerce.date().optional(),
   category: z.string().trim().max(120).optional(),
   description: z.string().max(5000).optional(),
-  paymentMethod: z.enum(PAYMENT_METHODS).optional(),
+  paymentMethod: optionSlug.optional(),
   paymentRef: z.string().trim().max(140).optional(),
   paymentMethodOther: z.string().trim().max(120).optional(),
   party: partySchema.optional(),
@@ -56,13 +75,13 @@ export const createTransactionSchema = z.object({
 });
 
 export const updateTransactionSchema = z.object({
-  type: z.enum(TRANSACTION_TYPES).optional(),
+  type: optionSlug.optional(),
   amount: money(0.01).optional(),
   currency: z.string().trim().max(10).optional(),
   date: z.coerce.date().optional(),
   category: z.string().trim().max(120).optional(),
   description: z.string().max(5000).optional(),
-  paymentMethod: z.enum(PAYMENT_METHODS).optional(),
+  paymentMethod: optionSlug.optional(),
   paymentRef: z.string().trim().max(140).optional(),
   paymentMethodOther: z.string().trim().max(120).optional(),
   party: partySchema.optional(),

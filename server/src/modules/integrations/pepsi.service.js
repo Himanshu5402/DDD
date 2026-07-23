@@ -1,15 +1,22 @@
 import Project, { PEPSI_STAGES } from '../../models/project.model.js';
+import Contact from '../../models/contact.model.js';
+import User from '../../models/user.model.js';
+import logger from '../../config/logger.js';
+import { broadcast } from '../../socket/index.js';
+import { pingPepsi } from '../../services/integrations/pepsi.client.js';
+import { runPepsiSync } from './pepsi.sync.js';
 
 /**
- * PEPSI portal → DDD project sync.
+ * PEPSI portal → DDD sync.
  *
- * Accepts projects in the PEPSI wire shape and upserts them keyed on
- * `externalId` (PRJ-xxxx), so the sync is idempotent — run it as often as
- * you like, no duplicates. Synced projects get source='pepsi' and are meant
- * to be read-only in DDD (PEPSI stays the source of truth).
+ * Accepts projects/customers/leads in the PEPSI wire shape and upserts them
+ * keyed on `externalId` (PRJ-xxxx / CUST-xxx / OPP-xxxx), so the sync is
+ * idempotent — run it as often as you like, no duplicates. Synced rows get
+ * source/sourceSystem='pepsi'; the portal stays the source of truth (DDD
+ * writes go through the write-through branches in the rrrmas services).
  *
- * When the PEPSI API exists, point a fetcher at it and pass its JSON here —
- * nothing else in DDD needs to change.
+ * The portal pushes `pepsi.state.updated` after every blob save; a
+ * trailing-edge coalesce timer turns bursts of those into ONE pull.
  */
 
 const HEALTH_MAP = {
@@ -132,6 +139,18 @@ export function mapPepsiProject(p) {
       schedule: c.schedule || c.sch || '',
       status: c.status || c.st || '',
     })),
+    expensesExternal: (p.expenses || p.expensesExternal || []).map((e) => ({
+      externalId: e.externalId || e.id || '',
+      category: e.category || e.cat || '',
+      amount: e.amount != null || e.amt != null ? Number(e.amount ?? e.amt) || 0 : 0,
+      by: e.by || '',
+      date: e.date || e.dt || '', // portal-formatted, e.g. "03 Jul" — kept verbatim
+      status: e.status || e.st || '',
+      paid: e.paid || '',
+      note: e.note || '',
+      rejectReason: e.rejectReason || e.rej || '',
+    })),
+    blocked: !!p.blocked,
     lastSyncedAt: new Date(),
   };
 }
@@ -165,11 +184,186 @@ export async function upsertPepsiProjects(projects, actorId) {
   return { created, updated, total: created + updated };
 }
 
-/** Sync status: how many PEPSI projects exist and when they last synced. */
+let systemUserIdCache = null;
+/**
+ * The DDD user mirrored rows are attributed to (createdBy): the seed admin —
+ * earliest active non-HRMS account (same pattern as hrmsSync.service.js).
+ */
+async function getSystemUserId() {
+  if (systemUserIdCache) return systemUserIdCache;
+  const admin =
+    (await User.findOne({ isActive: true, source: { $ne: 'hrms' } })
+      .sort({ createdAt: 1 })
+      .select('_id')) || (await User.findOne().sort({ createdAt: 1 }).select('_id'));
+  systemUserIdCache = admin?._id ?? null;
+  return systemUserIdCache;
+}
+
+/* ===================== Customer / lead Contact mirrors ===================== */
+
+// PEPSI sales stage → DDD contact status (leads only; customers stay 'active').
+const LEAD_STATUS_MAP = {
+  Lead: 'new',
+  Qualified: 'qualified',
+  Proposal: 'contacted',
+  Negotiation: 'contacted',
+  Won: 'active',
+  Lost: 'lost',
+};
+
+/**
+ * Upsert PEPSI customers as Contact mirrors keyed `{externalId (CUST-xxx),
+ * sourceSystem:'pepsi'}`. Portal fields live under `customFields.pepsi`.
+ * Returns { created, updated, total }.
+ */
+export async function upsertPepsiCustomers(customers = [], actorId) {
+  let created = 0;
+  let updated = 0;
+
+  for (const c of customers) {
+    const externalId = String(c?.externalId || c?.id || '').trim();
+    if (!externalId || !c?.name) continue;
+
+    const pepsi = {
+      industry: c.industry || '',
+      site: c.site || '',
+      contractValue: c.contractValue != null ? Number(c.contractValue) : null,
+      portalStatus: c.status || '',
+    };
+
+    const existing = await Contact.findOne({ externalId });
+    if (existing) {
+      existing.sourceSystem = 'pepsi';
+      existing.type = 'customer';
+      existing.name = c.name;
+      existing.status = 'active';
+      existing.customFields = { ...(existing.customFields || {}), pepsi };
+      await existing.save();
+      updated += 1;
+    } else {
+      await Contact.create({
+        name: c.name,
+        type: 'customer',
+        status: 'active',
+        sourceSystem: 'pepsi',
+        externalId,
+        customFields: { pepsi },
+        createdBy: actorId || (await getSystemUserId()),
+      });
+      created += 1;
+    }
+  }
+
+  return { created, updated, total: created + updated };
+}
+
+/**
+ * Upsert PEPSI sales leads (OPP-xxxx) as Contact mirrors, type 'lead'.
+ * `company` = prospect name, falling back to the linked customer's name.
+ * Returns { created, updated, total }.
+ */
+export async function upsertPepsiLeads(leads = [], actorId) {
+  let created = 0;
+  let updated = 0;
+
+  for (const l of leads) {
+    const externalId = String(l?.externalId || l?.id || '').trim();
+    const name = l?.title || l?.name;
+    if (!externalId || !name) continue;
+
+    let company = l.prospect || '';
+    if (!company && l.customerExternalId) {
+      const customer = await Contact.findOne({ externalId: l.customerExternalId }).select('name');
+      company = customer?.name || '';
+    }
+
+    const pepsi = {
+      stage: l.stage || '',
+      value: l.value != null ? Number(l.value) : null,
+      probability: l.probability != null ? Number(l.probability) : null,
+      owner: l.owner || '',
+      source: l.source || '',
+      closeDate: l.closeDate || '',
+      nextAction: l.nextAction || '',
+      note: l.note || '',
+      customerExternalId: l.customerExternalId || '',
+    };
+
+    const fields = {
+      sourceSystem: 'pepsi',
+      type: 'lead',
+      name,
+      company,
+      status: LEAD_STATUS_MAP[l.stage] || 'new',
+    };
+
+    const existing = await Contact.findOne({ externalId });
+    if (existing) {
+      Object.assign(existing, fields);
+      existing.customFields = { ...(existing.customFields || {}), pepsi };
+      await existing.save();
+      updated += 1;
+    } else {
+      await Contact.create({
+        ...fields,
+        externalId,
+        customFields: { pepsi },
+        createdBy: actorId || (await getSystemUserId()),
+      });
+      created += 1;
+    }
+  }
+
+  return { created, updated, total: created + updated };
+}
+
+/* ========================= Inbound event handling ========================= */
+
+const EVENT_SYNC_COALESCE_MS = 5000;
+let eventSyncTimer = null;
+
+/**
+ * Handle a pushed PEPSI event. The portal emits `pepsi.state.updated` after
+ * every blob save (SPA autosaves ~700ms after each change), so instead of
+ * pulling per event we coalesce: each event re-arms a 5s trailing-edge timer
+ * and ONE full pull runs after the burst settles. Unknown events → ignored.
+ */
+export function handlePepsiEvent(event, _payload = {}) {
+  if (event !== 'pepsi.state.updated') return { ignored: true, event };
+
+  if (eventSyncTimer) clearTimeout(eventSyncTimer);
+  eventSyncTimer = setTimeout(async () => {
+    eventSyncTimer = null;
+    try {
+      const actorId = await getSystemUserId();
+      // No snapshot fallback here: the event proves the API is up, and a
+      // stale snapshot must never overwrite freshly-pushed portal state.
+      const result = await runPepsiSync(actorId, { allowSnapshotFallback: false });
+      broadcast('rrrmas:changed', { type: 'pepsi:event-sync', at: Date.now() });
+      logger.info(`PEPSI event sync complete: ${JSON.stringify(result)}`);
+    } catch (err) {
+      logger.error(`PEPSI event sync failed: ${err.message}`);
+    }
+  }, EVENT_SYNC_COALESCE_MS);
+  eventSyncTimer.unref?.();
+
+  return { event, handled: true, scheduled: true };
+}
+
+/** Sync status: mirror counts, reachability, and when they last synced. */
 export async function getPepsiStatus() {
-  const [count, latest] = await Promise.all([
+  const [count, latest, customers, leads, pepsiReachable] = await Promise.all([
     Project.countDocuments({ source: 'pepsi' }),
     Project.findOne({ source: 'pepsi' }).sort({ lastSyncedAt: -1 }).select('lastSyncedAt'),
+    Contact.countDocuments({ sourceSystem: 'pepsi', type: 'customer' }),
+    Contact.countDocuments({ sourceSystem: 'pepsi', type: 'lead' }),
+    pingPepsi(),
   ]);
-  return { projects: count, lastSyncedAt: latest?.lastSyncedAt ?? null };
+  return {
+    projects: count,
+    customers,
+    leads,
+    pepsiReachable,
+    lastSyncedAt: latest?.lastSyncedAt ?? null,
+  };
 }

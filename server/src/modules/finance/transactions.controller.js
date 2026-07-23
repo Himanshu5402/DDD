@@ -13,6 +13,17 @@ export const list = asyncHandler(async (req, res) => {
   return ApiResponse.paginated(res, items, { page, limit, total }, 'Transactions');
 });
 
+export const listOptions = asyncHandler(async (_req, res) => {
+  const options = await service.listFinanceOptions();
+  return ApiResponse.ok(res, options, 'Finance options');
+});
+
+export const addOption = asyncHandler(async (req, res) => {
+  const option = await service.addFinanceOption(req.body, req.user?._id);
+  emitChange('option:added', option.key);
+  return ApiResponse.created(res, { option }, `${req.body.kind === 'method' ? 'Payment method' : 'Category'} added`);
+});
+
 export const getOne = asyncHandler(async (req, res) => {
   const transaction = await service.getTransaction(req.params.id);
   return ApiResponse.ok(res, { transaction }, 'Transaction');

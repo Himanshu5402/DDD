@@ -2,13 +2,14 @@ import { Router } from 'express';
 import { z } from 'zod';
 import authenticate from '../../middleware/authenticate.middleware.js';
 import authorize from '../../middleware/authorize.middleware.js';
+import { requireApiKeyFor } from '../../middleware/apiKey.middleware.js';
 import validate from '../../middleware/validate.middleware.js';
 import auditAction from '../../middleware/audit.middleware.js';
 import asyncHandler from '../../utils/asyncHandler.js';
 import ApiResponse from '../../utils/ApiResponse.js';
 import { broadcast } from '../../socket/index.js';
 import { MODULES, ACTIONS } from '../../config/constants.js';
-import { upsertPepsiProjects, getPepsiStatus } from './pepsi.service.js';
+import { upsertPepsiProjects, getPepsiStatus, handlePepsiEvent } from './pepsi.service.js';
 import { runPepsiSync } from './pepsi.sync.js';
 
 const router = Router();
@@ -26,6 +27,34 @@ const syncSchema = z.object({
     )
     .min(1),
 });
+
+// {event, payload, occurredAt} — same envelope as the HRMS/ERP event inboxes.
+const eventSchema = z.object({
+  event: z.string().min(1),
+  payload: z.any().optional(),
+  occurredAt: z.string().optional(),
+});
+
+/**
+ * @swagger
+ * /integrations/pepsi/events:
+ *   post:
+ *     tags: [Integrations]
+ *     summary: Inbound PEPSI event push (x-api-key) — coalesced pull on state change
+ *     responses:
+ *       200: { description: Event accepted (or ignored if unknown) }
+ */
+// NB machine-to-machine — dedicated PEPSI API key only, deliberately NO
+// authenticate/JWT (must stay above the router.use(authenticate) below).
+router.post(
+  '/events',
+  requireApiKeyFor('PEPSI_INTEGRATION_API_KEY'),
+  validate({ body: eventSchema }),
+  asyncHandler(async (req, res) => {
+    const result = handlePepsiEvent(req.body.event, req.body.payload || {});
+    return ApiResponse.ok(res, result, result.ignored ? 'Event ignored' : 'Event processed');
+  })
+);
 
 router.use(authenticate);
 

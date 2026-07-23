@@ -13,6 +13,17 @@ export const list = asyncHandler(async (req, res) => {
   return ApiResponse.paginated(res, items, { page, limit, total }, 'Products');
 });
 
+export const listCategories = asyncHandler(async (_req, res) => {
+  const categories = await service.listCategories();
+  return ApiResponse.ok(res, { categories }, 'Product categories');
+});
+
+export const addCategory = asyncHandler(async (req, res) => {
+  const category = await service.addCategory(req.body.label, req.user?._id);
+  broadcast('products:changed', { type: 'category_added', key: category.key, at: Date.now() });
+  return ApiResponse.created(res, { category }, 'Category added');
+});
+
 export const getOne = asyncHandler(async (req, res) => {
   const product = await service.getProduct(req.params.id);
   return ApiResponse.ok(res, { product }, 'Product');

@@ -25,6 +25,10 @@ import Candidate from '../../models/candidate.model.js';
 import PayrollPeriod from '../../models/payrollPeriod.model.js';
 import HrDocument from '../../models/hrDocument.model.js';
 import User from '../../models/user.model.js';
+import ErpRawMaterial from '../../models/erpRawMaterial.model.js';
+import ErpFinishedGood from '../../models/erpFinishedGood.model.js';
+import ErpSalesOrder from '../../models/erpSalesOrder.model.js';
+import ErpAsset from '../../models/erpAsset.model.js';
 import { MODULES } from '../../config/constants.js';
 
 // Status sets mirrored from the owning models' enums.
@@ -179,14 +183,30 @@ export async function getOverview(user, permissions, isSuperAdmin) {
 
   if (can(MODULES.FINANCE)) {
     add('finance', async () => {
+      // Direction-based so admin-added custom types roll into the right bucket.
       const rows = await Transaction.aggregate([
         { $match: { date: { $gte: monthStart } } },
-        { $group: { _id: '$type', total: { $sum: '$amount' } } },
+        { $group: { _id: '$direction', total: { $sum: '$amount' } } },
       ]);
       const totals = Object.fromEntries(rows.map((r) => [r._id, r.total]));
-      const monthIncome = totals.income || 0;
-      const monthExpense = totals.expense || 0;
+      const monthIncome = totals.in || 0;
+      const monthExpense = totals.out || 0;
       return { monthIncome, monthExpense, monthNet: monthIncome - monthExpense };
+    });
+  }
+
+  if (can(MODULES.ERP)) {
+    add('erp', async () => {
+      const [rawMaterialsInStock, finishedGoodsInStock, pendingQC, openOrders, dispatchedThisMonth, assetsAssigned] =
+        await Promise.all([
+          ErpRawMaterial.countDocuments({ status: 'in_stock' }),
+          ErpFinishedGood.countDocuments({ status: 'in_stock' }),
+          ErpFinishedGood.countDocuments({ qcStatus: 'pending' }),
+          ErpSalesOrder.countDocuments({ status: { $in: ['open', 'partial'] } }),
+          ErpFinishedGood.countDocuments({ status: 'dispatched', dispatchDate: { $gte: monthStart } }),
+          ErpAsset.countDocuments({ status: 'assigned' }),
+        ]);
+      return { rawMaterialsInStock, finishedGoodsInStock, pendingQC, openOrders, dispatchedThisMonth, assetsAssigned };
     });
   }
 

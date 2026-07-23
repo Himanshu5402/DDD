@@ -20,6 +20,8 @@ export const MODULES = Object.freeze({
   FINANCE: 'finance',
   MAINTENANCE: 'maintenance',
   EMPLOYEE_ANALYTICS: 'employee_analytics',
+  // ERP mirror — inventory / production / sales fed by itsybizz-ERP.
+  ERP: 'erp',
   // HR / People modules — read-only mirrors fed by the company HRMS.
   LEAVE: 'leave',
   RECRUITMENT: 'recruitment',

@@ -43,6 +43,15 @@ export const financeApi = {
     const { data } = await api.get('/finance/transactions/custom-methods');
     return data.data.methods || [];
   },
+  // Dynamic dropdown options — admin-customizable categories + payment methods.
+  async options() {
+    const { data } = await api.get('/finance/options');
+    return data.data; // { categories: [{key,label}], methods: [{key,label,refLabel}] }
+  },
+  async addOption({ kind, label, refLabel }) {
+    const { data } = await api.post('/finance/options', { kind, label, refLabel });
+    return data.data.option; // { key, label, refLabel? }
+  },
 
   // --- Budgets ---
   async listBudgets(params = {}) {
