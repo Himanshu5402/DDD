@@ -31,7 +31,9 @@ import CloseIcon from '@mui/icons-material/Close';
 import EventBusyIcon from '@mui/icons-material/EventBusy';
 import PendingActionsIcon from '@mui/icons-material/PendingActions';
 import UpcomingIcon from '@mui/icons-material/Upcoming';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 import PageHeader from '../../components/ui/PageHeader.jsx';
+import ImportDialog from '../../components/import/ImportDialog.jsx';
 import {
   leaveApi,
   LEAVE_TYPES,
@@ -93,6 +95,43 @@ const EMPTY_FORM = {
   reason: '',
 };
 
+/* ------------------------- File import (Excel/PDF) ------------------------ */
+
+const LEAVE_IMPORT_FIELDS = [
+  { key: 'user', label: 'User ID', required: true, hint: '24-character employee user id' },
+  { key: 'leaveType', label: 'Leave type', required: true, hint: LEAVE_TYPES.join(' / ') },
+  { key: 'fromDate', label: 'From date', required: true, hint: 'YYYY-MM-DD' },
+  { key: 'toDate', label: 'To date', required: true, hint: 'YYYY-MM-DD' },
+  { key: 'days', label: 'Days', required: true, hint: 'number ≥ 0.5' },
+  { key: 'status', label: 'Status', hint: LEAVE_REQUEST_STATUSES.join(' / ') },
+  { key: 'reason', label: 'Reason' },
+];
+
+function buildLeaveImportPayload(m) {
+  const user = (m.user || '').trim();
+  if (!/^[a-f\d]{24}$/i.test(user)) throw new Error('User ID must be a 24-character user id');
+  const leaveType = (m.leaveType || '').toLowerCase().replace(/[\s-]+/g, '_');
+  if (!LEAVE_TYPES.includes(leaveType)) throw new Error(`Unknown leave type "${m.leaveType}"`);
+  if (!m.fromDate) throw new Error('From date is required');
+  if (!m.toDate) throw new Error('To date is required');
+  const days = Number(String(m.days).replace(/[^0-9.-]/g, ''));
+  if (!Number.isFinite(days) || days < 0.5) throw new Error('Days must be a number of at least 0.5');
+  const payload = {
+    user,
+    leaveType,
+    fromDate: m.fromDate,
+    toDate: m.toDate,
+    days,
+  };
+  if (m.status) {
+    const status = m.status.toLowerCase();
+    if (!LEAVE_REQUEST_STATUSES.includes(status)) throw new Error(`Unknown status "${m.status}"`);
+    payload.status = status;
+  }
+  if (m.reason) payload.reason = m.reason;
+  return payload;
+}
+
 export default function LeavePage() {
   const qc = useQueryClient();
   // Owner-only console: RBAC removed — full access for every signed-in user.
@@ -101,6 +140,7 @@ export default function LeavePage() {
   const [status, setStatus] = useState('');
   const [leaveType, setLeaveType] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [snack, setSnack] = useState(null); // { severity, message }
 
@@ -186,6 +226,11 @@ export default function LeavePage() {
         action={
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
             <Chip label={`${total} requests`} />
+            {perms.create && (
+              <Button variant="outlined" startIcon={<UploadFileIcon />} onClick={() => setImportOpen(true)}>
+                Import
+              </Button>
+            )}
             {perms.create && (
               <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
                 New request
@@ -386,6 +431,17 @@ export default function LeavePage() {
         onSave={(payload) => saveMutation.mutate(payload)}
         saving={saveMutation.isPending}
         error={saveError}
+      />
+
+      <ImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Import leave requests from Excel / PDF"
+        entity="employee leave requests"
+        fields={LEAVE_IMPORT_FIELDS}
+        buildPayload={buildLeaveImportPayload}
+        createFn={(payload) => leaveApi.createRequest(payload)}
+        onDone={invalidate}
       />
 
       <Snackbar

@@ -33,7 +33,9 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import SearchIcon from '@mui/icons-material/Search';
 import CloseIcon from '@mui/icons-material/Close';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 import PageHeader from '../../components/ui/PageHeader.jsx';
+import ImportDialog from '../../components/import/ImportDialog.jsx';
 import {
   productsApi,
   PRODUCT_STATUSES,
@@ -68,6 +70,38 @@ const EMPTY_FORM = {
   specs: [], // free-form { name, value } rows — admin adds as many as needed
 };
 
+/* ------------------------- File import (Excel/PDF) ------------------------ */
+
+const PRODUCT_IMPORT_FIELDS = [
+  { key: 'name', label: 'Name', required: true },
+  { key: 'sku', label: 'SKU', hint: 'e.g. PRD-001' },
+  { key: 'category', label: 'Category', hint: 'e.g. software / other' },
+  { key: 'status', label: 'Status', hint: 'development / active / deprecated' },
+  { key: 'currentVersion', label: 'Current version', hint: 'e.g. 1.2.0' },
+  { key: 'price', label: 'Price (INR)', hint: 'number ≥ 0' },
+  { key: 'description', label: 'Description' },
+];
+
+function buildProductImportPayload(m, extras) {
+  if (!m.name) throw new Error('Name is required');
+  const payload = { name: m.name, specs: extras };
+  if (m.sku) payload.sku = m.sku;
+  const category = (m.category || '').toLowerCase();
+  if (category) payload.category = category;
+  const status = (m.status || '').toLowerCase();
+  if (PRODUCT_STATUSES.includes(status)) payload.status = status;
+  if (m.currentVersion) payload.currentVersion = m.currentVersion;
+  if (m.price) {
+    // Guard the stripped string: "N/A"/"free" must fail, not become ₹0.
+    const raw = String(m.price).replace(/[^0-9.-]/g, '');
+    const price = Number(raw);
+    if (!raw || !Number.isFinite(price) || price < 0) throw new Error('Price must be a number ≥ 0');
+    payload.price = price;
+  }
+  if (m.description) payload.description = m.description;
+  return payload;
+}
+
 export default function ProductsPage() {
   const qc = useQueryClient();
   // Owner-only console: RBAC removed — full access for every signed-in user.
@@ -79,6 +113,7 @@ export default function ProductsPage() {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [saveError, setSaveError] = useState('');
   const [detailId, setDetailId] = useState(null);
@@ -154,6 +189,11 @@ export default function ProductsPage() {
         action={
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
             <Chip label={`${total} total`} />
+            {canCreate && (
+              <Button variant="outlined" startIcon={<UploadFileIcon />} onClick={() => setImportOpen(true)}>
+                Import
+              </Button>
+            )}
             {canCreate && (
               <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
                 New product
@@ -303,6 +343,18 @@ export default function ProductsPage() {
         onEdit={(product) => { setDetailId(null); openEdit(product); }}
         canEdit={canUpdate}
         catLabel={catLabel}
+      />
+
+      <ImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Import products from Excel / PDF"
+        entity="products (product catalog items with versions and specifications)"
+        fields={PRODUCT_IMPORT_FIELDS}
+        buildPayload={buildProductImportPayload}
+        createFn={(payload) => productsApi.create(payload)}
+        onDone={invalidate}
+        unmappedAsExtras
       />
     </Box>
   );

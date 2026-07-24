@@ -67,6 +67,15 @@ const transactionSchema = new Schema(
 
     tags: [{ type: String, trim: true }],
 
+    // Free-form per-transaction fields added in the form ("Add field"),
+    // mirroring Product.specs — e.g. Party name, Invoice no., GST %.
+    extraFields: [
+      {
+        name: { type: String, required: true, trim: true },
+        value: { type: String, default: '', trim: true },
+      },
+    ],
+
     // Dynamic admin-defined fields (entityType 'transaction').
     customFields: { type: Schema.Types.Mixed, default: {} },
 

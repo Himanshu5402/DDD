@@ -32,7 +32,9 @@ import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import SearchIcon from '@mui/icons-material/Search';
 import AutorenewIcon from '@mui/icons-material/Autorenew';
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 import PageHeader from '../../components/ui/PageHeader.jsx';
+import ImportDialog from '../../components/import/ImportDialog.jsx';
 import { getErrorMessage } from '../../lib/axios.js';
 import { getSocket, connectSocket } from '../../lib/socket.js';
 import { usersApi } from '../../api/users.api.js';
@@ -53,6 +55,9 @@ import {
 function humanize(v) {
   return String(v).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
+
+/** Imported file cell → enum slug: "Under Maintenance" → "under_maintenance". */
+const toImportSlug = (v) => String(v).toLowerCase().trim().replace(/[\s-]+/g, '_');
 
 function getPath(obj, path) {
   return path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
@@ -313,6 +318,43 @@ const ASSET_FIELDS = [
   { name: 'amc.validUntil', label: 'AMC valid until', type: 'date' },
 ];
 
+const ASSET_IMPORT_FIELDS = [
+  { key: 'name', label: 'Name', required: true },
+  { key: 'code', label: 'Asset ID / code', hint: 'Unique tag, e.g. CPU-06' },
+  { key: 'category', label: 'Component type', hint: 'cpu / monitor / mouse…' },
+  { key: 'setupNumber', label: 'Setup no.', hint: 'Groups one PC’s parts, e.g. 06' },
+  { key: 'department', label: 'Department' },
+  { key: 'room', label: 'Room no.' },
+  { key: 'location', label: 'Location' },
+  { key: 'status', label: 'Status', hint: 'operational / under_maintenance / breakdown / retired' },
+  { key: 'purchaseDate', label: 'Purchase date', hint: 'YYYY-MM-DD' },
+  { key: 'purchaseCost', label: 'Purchase cost', hint: 'number ≥ 0' },
+  { key: 'warrantyUntil', label: 'Warranty until', hint: 'YYYY-MM-DD' },
+];
+
+function buildAssetImportPayload(m) {
+  if (!m.name) throw new Error('Name is required');
+  const payload = { name: m.name };
+  if (m.code) payload.code = m.code;
+  if (m.category) payload.category = toImportSlug(m.category);
+  if (m.setupNumber) payload.setupNumber = m.setupNumber;
+  if (m.department) payload.department = m.department;
+  if (m.room) payload.room = m.room;
+  if (m.location) payload.location = m.location;
+  if (m.status) {
+    const status = toImportSlug(m.status);
+    if (ASSET_STATUSES.includes(status)) payload.status = status;
+  }
+  if (m.purchaseDate) payload.purchaseDate = m.purchaseDate;
+  if (m.purchaseCost) {
+    const cost = Number(String(m.purchaseCost).replace(/[^0-9.-]/g, ''));
+    if (!Number.isFinite(cost) || cost < 0) throw new Error('Purchase cost must be a number ≥ 0');
+    payload.purchaseCost = cost;
+  }
+  if (m.warrantyUntil) payload.warrantyUntil = m.warrantyUntil;
+  return payload;
+}
+
 /** One workstation setup (or lone asset) as a card: components, status, assignee. */
 function SetupCard({ group, users, perms, onAssign, onEdit, onDelete }) {
   const first = group.items[0];
@@ -399,6 +441,7 @@ function AssetsPanel({ perms }) {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [saveError, setSaveError] = useState('');
 
@@ -480,6 +523,11 @@ function AssetsPanel({ perms }) {
         {total != null && <Chip label={`${total} total`} size="small" />}
         <Box sx={{ flex: 1 }} />
         {perms.create && (
+          <Button variant="outlined" startIcon={<UploadFileIcon />} onClick={() => setImportOpen(true)}>
+            Import
+          </Button>
+        )}
+        {perms.create && (
           <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
             New asset
           </Button>
@@ -523,6 +571,17 @@ function AssetsPanel({ perms }) {
         record={editing}
         users={users}
       />
+
+      <ImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Import assets from Excel / PDF"
+        entity="office IT assets (computers, monitors, peripherals)"
+        fields={ASSET_IMPORT_FIELDS}
+        buildPayload={buildAssetImportPayload}
+        createFn={(p) => assetsApi.create(p)}
+        onDone={invalidate}
+      />
     </Box>
   );
 }
@@ -540,12 +599,49 @@ const RECORD_FIELDS = [
   { name: 'notes', label: 'Notes', type: 'textarea', full: true },
 ];
 
+const RECORD_IMPORT_FIELDS = [
+  { key: 'title', label: 'Title / Task', required: true, hint: 'e.g. Water tank repair' },
+  { key: 'type', label: 'Type', hint: 'preventive / breakdown / inspection / calibration / amc_service' },
+  { key: 'status', label: 'Status', hint: 'scheduled / in_progress / completed / cancelled' },
+  { key: 'scheduledFor', label: 'Scheduled for', required: true, hint: 'YYYY-MM-DD' },
+  { key: 'technician', label: 'Technician' },
+  { key: 'cost', label: 'Cost', hint: 'number ≥ 0' },
+  { key: 'reminderDaysBefore', label: 'Remind (days before)', hint: '0–90' },
+  { key: 'notes', label: 'Notes' },
+];
+
+function buildRecordImportPayload(m) {
+  if (!m.title) throw new Error('Title is required');
+  if (!m.scheduledFor) throw new Error('Scheduled for date is required');
+  const type = m.type ? toImportSlug(m.type) : 'preventive';
+  if (!MAINTENANCE_TYPES.includes(type)) throw new Error(`Type must be one of: ${MAINTENANCE_TYPES.join(', ')}`);
+  const payload = { title: m.title, type, scheduledFor: m.scheduledFor };
+  if (m.status) {
+    const status = toImportSlug(m.status);
+    if (MAINTENANCE_STATUSES.includes(status)) payload.status = status;
+  }
+  if (m.technician) payload.technician = m.technician;
+  if (m.cost) {
+    const cost = Number(String(m.cost).replace(/[^0-9.-]/g, ''));
+    if (!Number.isFinite(cost) || cost < 0) throw new Error('Cost must be a number ≥ 0');
+    payload.cost = cost;
+  }
+  if (m.reminderDaysBefore) {
+    const days = Number(String(m.reminderDaysBefore).replace(/[^0-9.-]/g, ''));
+    if (!Number.isFinite(days)) throw new Error('Remind days must be a number');
+    payload.reminderDaysBefore = Math.round(days);
+  }
+  if (m.notes) payload.notes = m.notes;
+  return payload;
+}
+
 function RecordsPanel({ perms, assets }) {
   const qc = useQueryClient();
   const [asset, setAsset] = useState('');
   const [type, setType] = useState('');
   const [status, setStatus] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [saveError, setSaveError] = useState('');
 
@@ -636,6 +732,11 @@ function RecordsPanel({ perms, assets }) {
           </Tooltip>
         )}
         {perms.create && (
+          <Button variant="outlined" startIcon={<UploadFileIcon />} onClick={() => setImportOpen(true)}>
+            Import
+          </Button>
+        )}
+        {perms.create && (
           <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
             New record
           </Button>
@@ -709,6 +810,17 @@ function RecordsPanel({ perms, assets }) {
         record={editing}
         assets={assets}
       />
+
+      <ImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Import maintenance records from Excel / PDF"
+        entity="maintenance / repair job records"
+        fields={RECORD_IMPORT_FIELDS}
+        buildPayload={buildRecordImportPayload}
+        createFn={(p) => recordsApi.create(p)}
+        onDone={invalidate}
+      />
     </Box>
   );
 }
@@ -728,12 +840,58 @@ const EXPIRY_FIELDS = [
   { name: 'notes', label: 'Notes', type: 'textarea', full: true },
 ];
 
+const EXPIRY_IMPORT_FIELDS = [
+  { key: 'name', label: 'Name', required: true, hint: 'e.g. Office WiFi, Electricity bill' },
+  { key: 'category', label: 'Category', hint: 'utility / internet / mobile / software…' },
+  { key: 'provider', label: 'Provider / biller', hint: 'e.g. Airtel, BSES, Jio' },
+  { key: 'accountRef', label: 'Account / consumer no.' },
+  { key: 'amount', label: 'Amount', hint: 'number ≥ 0' },
+  { key: 'dueDate', label: 'Due / expiry date', required: true, hint: 'YYYY-MM-DD' },
+  { key: 'recurrence', label: 'Recurrence', hint: 'none / weekly / monthly / quarterly / half_yearly / yearly' },
+  { key: 'status', label: 'Status', hint: 'active / paid / cancelled' },
+  { key: 'reminderDaysBefore', label: 'Remind days before', hint: '0–90' },
+  { key: 'notes', label: 'Notes' },
+];
+
+function buildExpiryImportPayload(m) {
+  if (!m.name) throw new Error('Name is required');
+  if (!m.dueDate) throw new Error('Due date is required');
+  const payload = { name: m.name, dueDate: m.dueDate };
+  if (m.category) {
+    const category = toImportSlug(m.category);
+    if (EXPIRY_CATEGORIES.includes(category)) payload.category = category;
+  }
+  if (m.provider) payload.provider = m.provider;
+  if (m.accountRef) payload.accountRef = m.accountRef;
+  if (m.amount) {
+    const amount = Number(String(m.amount).replace(/[^0-9.-]/g, ''));
+    if (!Number.isFinite(amount) || amount < 0) throw new Error('Amount must be a number ≥ 0');
+    payload.amount = amount;
+  }
+  if (m.recurrence) {
+    const recurrence = toImportSlug(m.recurrence);
+    if (EXPIRY_RECURRENCES.includes(recurrence)) payload.recurrence = recurrence;
+  }
+  if (m.status) {
+    const status = toImportSlug(m.status);
+    if (EXPIRY_STATUSES.includes(status)) payload.status = status;
+  }
+  if (m.reminderDaysBefore) {
+    const days = Number(String(m.reminderDaysBefore).replace(/[^0-9.-]/g, ''));
+    if (!Number.isFinite(days)) throw new Error('Remind days must be a number');
+    payload.reminderDaysBefore = Math.round(days);
+  }
+  if (m.notes) payload.notes = m.notes;
+  return payload;
+}
+
 function BillsPanel({ perms, users }) {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('active');
   const [category, setCategory] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [saveError, setSaveError] = useState('');
 
@@ -828,6 +986,11 @@ function BillsPanel({ perms, users }) {
           </Tooltip>
         )}
         {perms.create && (
+          <Button variant="outlined" startIcon={<UploadFileIcon />} onClick={() => setImportOpen(true)}>
+            Import
+          </Button>
+        )}
+        {perms.create && (
           <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
             New bill
           </Button>
@@ -908,6 +1071,17 @@ function BillsPanel({ perms, users }) {
         fields={EXPIRY_FIELDS}
         record={editing}
         users={users}
+      />
+
+      <ImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Import bills & renewals from Excel / PDF"
+        entity="recurring bills, recharges and renewals"
+        fields={EXPIRY_IMPORT_FIELDS}
+        buildPayload={buildExpiryImportPayload}
+        createFn={(p) => expiriesApi.create(p)}
+        onDone={invalidate}
       />
     </Box>
   );

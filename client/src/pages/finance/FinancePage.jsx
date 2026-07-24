@@ -36,6 +36,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 import {
   ResponsiveContainer,
   BarChart,
@@ -47,6 +48,7 @@ import {
   Legend,
 } from 'recharts';
 import PageHeader from '../../components/ui/PageHeader.jsx';
+import ImportDialog from '../../components/import/ImportDialog.jsx';
 import {
   financeApi,
   TRANSACTION_TYPE_LABELS,
@@ -455,18 +457,161 @@ function AddFinanceOptionDialog({ open, kind, onClose, onAdded }) {
   );
 }
 
+/* ------------------------- Custom (extra) fields ------------------------- */
+
+/**
+ * Free-form name/value rows — same "Add field" UX as the Products page.
+ * `rows` is [{ name, value }]; `onChange` receives the next array.
+ */
+function ExtraFieldsEditor({ rows, onChange }) {
+  const setRow = (i, key) => (e) =>
+    onChange(rows.map((r, idx) => (idx === i ? { ...r, [key]: e.target.value } : r)));
+  const addRow = () => onChange([...rows, { name: '', value: '' }]);
+  const removeRow = (i) => onChange(rows.filter((_, idx) => idx !== i));
+
+  return (
+    <>
+      <Divider />
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Box>
+          <Typography sx={{ fontWeight: 700, fontSize: 14 }}>Custom fields</Typography>
+          <Typography variant="caption" color="text.secondary">
+            Add any name/value fields you need (e.g. Party name, Invoice no., GST %).
+          </Typography>
+        </Box>
+        <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={addRow}>
+          Add field
+        </Button>
+      </Box>
+      {rows.length === 0 && (
+        <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 1 }}>
+          No custom fields yet — click "Add field" to add one.
+        </Typography>
+      )}
+      {rows.map((r, i) => (
+        // eslint-disable-next-line react/no-array-index-key
+        <Box key={i} sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
+          <TextField
+            size="small"
+            label={`Field ${i + 1} name`}
+            value={r.name}
+            onChange={setRow(i, 'name')}
+            placeholder="e.g. Party name"
+            sx={{ flex: 1, minWidth: 140 }}
+          />
+          <TextField
+            size="small"
+            label="Value"
+            value={r.value}
+            onChange={setRow(i, 'value')}
+            placeholder="e.g. Acme Traders"
+            sx={{ flex: 1.4, minWidth: 160 }}
+          />
+          <Tooltip title="Remove field">
+            <IconButton size="small" color="error" onClick={() => removeRow(i)}>
+              <DeleteIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
+      ))}
+    </>
+  );
+}
+
+/** Trimmed, named rows only — the shape sent to the API. */
+function cleanExtraFields(rows) {
+  return rows
+    .map((r) => ({ name: (r.name || '').trim(), value: (r.value || '').trim() }))
+    .filter((r) => r.name);
+}
+
+/** Compact "Name: value" caption lines for a table row's custom fields. */
+function ExtraFieldsSummary({ fields, max = 2, maxWidth = 320 }) {
+  if (!fields?.length) return null;
+  const shown = fields.slice(0, max);
+  const more = fields.length - shown.length;
+  return (
+    <>
+      {shown.map((f, i) => (
+        <Typography
+          key={f._id || `${f.name}-${i}`}
+          variant="caption"
+          color="text.secondary"
+          noWrap
+          sx={{ display: 'block', maxWidth }}
+        >
+          {f.name}: {f.value || '—'}
+        </Typography>
+      ))}
+      {more > 0 && (
+        <Typography variant="caption" color="text.secondary">
+          +{more} more
+        </Typography>
+      )}
+    </>
+  );
+}
+
 const EMPTY_TRANSACTION_FORM = {
   type: 'expense',
   amount: '',
   date: new Date().toISOString().slice(0, 10),
   category: '',
-  description: '',
   paymentMethod: 'bank',
   paymentRef: '',
   paymentMethodOther: '',
-  partyName: '',
-  tags: '',
+  extra: [],
 };
+
+/* ------------------------- File import (Excel/PDF) ------------------------ */
+
+const TX_IMPORT_FIELDS = [
+  { key: 'type', label: 'Type', required: true, hint: 'income / expense' },
+  { key: 'amount', label: 'Amount', required: true, hint: 'number > 0' },
+  { key: 'date', label: 'Date', hint: 'YYYY-MM-DD' },
+  { key: 'category', label: 'Category' },
+  { key: 'paymentMethod', label: 'Payment method', hint: 'bank / upi / cash…' },
+  { key: 'paymentRef', label: 'Payment ID / ref' },
+];
+
+function buildTransactionImportPayload(m, extras) {
+  const amount = Number(String(m.amount).replace(/[^0-9.-]/g, ''));
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error('Amount must be a number greater than 0');
+  const payload = {
+    type: (m.type || 'expense').toLowerCase().trim() || 'expense',
+    amount,
+    extraFields: extras,
+  };
+  if (m.category) payload.category = m.category;
+  if (m.paymentMethod) payload.paymentMethod = m.paymentMethod.toLowerCase();
+  if (m.paymentRef) payload.paymentRef = m.paymentRef;
+  if (m.date) payload.date = m.date;
+  return payload;
+}
+
+const BUDGET_IMPORT_FIELDS = [
+  { key: 'name', label: 'Name', required: true },
+  { key: 'category', label: 'Category', required: true },
+  { key: 'period', label: 'Period', hint: 'monthly / quarterly / yearly' },
+  { key: 'amount', label: 'Amount', required: true, hint: 'number ≥ 0' },
+  { key: 'startDate', label: 'Start date', hint: 'YYYY-MM-DD' },
+  { key: 'endDate', label: 'End date', hint: 'YYYY-MM-DD' },
+];
+
+function buildBudgetImportPayload(m, extras) {
+  if (!m.name) throw new Error('Name is required');
+  if (!m.category) throw new Error('Category is required');
+  // Guard the stripped string: blank/"N/A" amounts must fail, not become ₹0.
+  const rawAmount = String(m.amount).replace(/[^0-9.-]/g, '');
+  const amount = Number(rawAmount);
+  if (!rawAmount || !Number.isFinite(amount) || amount < 0) throw new Error('Amount must be a number ≥ 0');
+  const payload = { name: m.name, category: m.category.toLowerCase(), amount, extraFields: extras };
+  const period = (m.period || '').toLowerCase();
+  if (BUDGET_PERIODS.includes(period)) payload.period = period;
+  if (m.startDate) payload.startDate = m.startDate;
+  if (m.endDate) payload.endDate = m.endDate;
+  return payload;
+}
 
 function TransactionsTab() {
   const qc = useQueryClient();
@@ -491,6 +636,7 @@ function TransactionsTab() {
   const typeMap = Object.fromEntries((options.types || []).map((t) => [t.key, t]));
   const isMoneyIn = (t) => (t.direction || typeMap[t.type]?.direction) === 'in';
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [saveError, setSaveError] = useState('');
 
@@ -541,7 +687,7 @@ function TransactionsTab() {
       >
         <TextField
           size="small"
-          placeholder="Search description or party…"
+          placeholder="Search details or custom fields…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           InputProps={{
@@ -582,6 +728,11 @@ function TransactionsTab() {
         <Box sx={{ flex: 1 }} />
         <Chip label={`${total} total`} />
         {canCreate && (
+          <Button variant="outlined" startIcon={<UploadFileIcon />} onClick={() => setImportOpen(true)}>
+            Import
+          </Button>
+        )}
+        {canCreate && (
           <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
             New transaction
           </Button>
@@ -604,7 +755,7 @@ function TransactionsTab() {
                 <TableCell>Date</TableCell>
                 <TableCell>Type</TableCell>
                 <TableCell>Category</TableCell>
-                <TableCell>Description / Party</TableCell>
+                <TableCell>Details</TableCell>
                 <TableCell>Method</TableCell>
                 <TableCell align="right">Amount</TableCell>
                 <TableCell align="right">Actions</TableCell>
@@ -632,14 +783,18 @@ function TransactionsTab() {
                   </TableCell>
                   <TableCell>{t.category || '—'}</TableCell>
                   <TableCell>
-                    <Typography variant="body2" noWrap sx={{ maxWidth: 320 }}>
-                      {t.description || '—'}
-                    </Typography>
+                    {/* Legacy description (older rows) — new rows use custom fields. */}
+                    {(t.description || !t.extraFields?.length) && (
+                      <Typography variant="body2" noWrap sx={{ maxWidth: 320 }}>
+                        {t.description || '—'}
+                      </Typography>
+                    )}
                     {(t.party?.name || t.party?.contact?.name) && (
                       <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', maxWidth: 320 }}>
                         {t.party?.name || t.party?.contact?.name}
                       </Typography>
                     )}
+                    <ExtraFieldsSummary fields={t.extraFields} />
                   </TableCell>
                   <TableCell>
                     {methodLabel(t, methodMap)}
@@ -690,6 +845,18 @@ function TransactionsTab() {
         error={saveError}
         options={options}
       />
+
+      <ImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Import transactions from Excel / PDF"
+        entity="finance transactions (income and expenses)"
+        fields={TX_IMPORT_FIELDS}
+        buildPayload={buildTransactionImportPayload}
+        createFn={(payload) => financeApi.createTransaction(payload)}
+        onDone={invalidate}
+        unmappedAsExtras
+      />
     </Box>
   );
 }
@@ -737,15 +904,13 @@ function TransactionDialog({ open, onClose, onSave, transaction, saving, error, 
         amount: String(transaction.amount ?? ''),
         date: transaction.date ? new Date(transaction.date).toISOString().slice(0, 10) : '',
         category: transaction.category === 'uncategorized' ? '' : (transaction.category || ''),
-        description: transaction.description || '',
         paymentMethod: transaction.paymentMethod || 'bank',
         paymentRef: transaction.paymentRef || '',
         paymentMethodOther: transaction.paymentMethodOther || '',
-        partyName: transaction.party?.name || '',
-        tags: (transaction.tags || []).join(', '),
+        extra: (transaction.extraFields || []).map((f) => ({ name: f.name || '', value: f.value || '' })),
       });
     } else {
-      setForm({ ...EMPTY_TRANSACTION_FORM, date: new Date().toISOString().slice(0, 10) });
+      setForm({ ...EMPTY_TRANSACTION_FORM, date: new Date().toISOString().slice(0, 10), extra: [] });
     }
   }, [open, transaction]);
 
@@ -756,14 +921,13 @@ function TransactionDialog({ open, onClose, onSave, transaction, saving, error, 
       type: form.type,
       amount: Number(form.amount),
       category: form.category.trim() || undefined,
-      description: form.description,
       paymentMethod: form.paymentMethod,
       // Cash-like methods (empty refLabel) carry no reference id.
       paymentRef: showRef ? form.paymentRef.trim() : '',
       // Custom method label only applies to 'other'.
       paymentMethodOther: form.paymentMethod === 'other' ? form.paymentMethodOther.trim() : '',
-      party: { name: form.partyName.trim() },
-      tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),
+      // Free-form "Add field" rows (replaces the old Description/Party/Tags).
+      extraFields: cleanExtraFields(form.extra),
     };
     if (form.date) payload.date = form.date;
     onSave(payload);
@@ -895,9 +1059,7 @@ function TransactionDialog({ open, onClose, onSave, transaction, saving, error, 
               <AddIcon fontSize="small" sx={{ mr: 1 }} /> Add new category…
             </MenuItem>
           </TextField>
-          <TextField label="Description" value={form.description} onChange={set('description')} fullWidth multiline minRows={2} />
-          <TextField label="Party name" value={form.partyName} onChange={set('partyName')} fullWidth placeholder="Who was paid / who paid" />
-          <TextField label="Tags" value={form.tags} onChange={set('tags')} fullWidth placeholder="Comma separated, e.g. q2, office" />
+          <ExtraFieldsEditor rows={form.extra} onChange={(rows) => setForm((f) => ({ ...f, extra: rows }))} />
         </Stack>
       </DialogContent>
       <DialogActions>
@@ -934,7 +1096,7 @@ const EMPTY_BUDGET_FORM = {
   amount: '',
   startDate: '',
   endDate: '',
-  notes: '',
+  extra: [],
 };
 
 function BudgetsTab() {
@@ -946,6 +1108,7 @@ function BudgetsTab() {
   const canDelete = perms.delete;
 
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [saveError, setSaveError] = useState('');
 
@@ -987,6 +1150,11 @@ function BudgetsTab() {
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1, mb: 2 }}>
         <Chip label={`${total} total`} />
+        {canCreate && (
+          <Button variant="outlined" startIcon={<UploadFileIcon />} onClick={() => setImportOpen(true)}>
+            Import
+          </Button>
+        )}
         {canCreate && (
           <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
             New budget
@@ -1030,11 +1198,13 @@ function BudgetsTab() {
                 <TableRow key={b._id} hover>
                   <TableCell>
                     <Typography sx={{ fontWeight: 600, fontSize: 14 }}>{b.name}</Typography>
+                    {/* Legacy notes (older rows) — new rows use custom fields. */}
                     {b.notes && (
                       <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', maxWidth: 280 }}>
                         {b.notes}
                       </Typography>
                     )}
+                    <ExtraFieldsSummary fields={b.extraFields} maxWidth={280} />
                   </TableCell>
                   <TableCell>{b.category}</TableCell>
                   <TableCell>
@@ -1072,6 +1242,18 @@ function BudgetsTab() {
         saving={saveMutation.isPending}
         error={saveError}
       />
+
+      <ImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Import budgets from Excel / PDF"
+        entity="expense budgets"
+        fields={BUDGET_IMPORT_FIELDS}
+        buildPayload={buildBudgetImportPayload}
+        createFn={(payload) => financeApi.createBudget(payload)}
+        onDone={invalidate}
+        unmappedAsExtras
+      />
     </Box>
   );
 }
@@ -1099,10 +1281,10 @@ function BudgetDialog({ open, onClose, onSave, budget, saving, error }) {
         amount: String(budget.amount ?? ''),
         startDate: budget.startDate ? new Date(budget.startDate).toISOString().slice(0, 10) : '',
         endDate: budget.endDate ? new Date(budget.endDate).toISOString().slice(0, 10) : '',
-        notes: budget.notes || '',
+        extra: (budget.extraFields || []).map((f) => ({ name: f.name || '', value: f.value || '' })),
       });
     } else {
-      setForm(EMPTY_BUDGET_FORM);
+      setForm({ ...EMPTY_BUDGET_FORM, extra: [] });
     }
   }, [open, budget]);
 
@@ -1114,7 +1296,8 @@ function BudgetDialog({ open, onClose, onSave, budget, saving, error }) {
       category: form.category.trim(),
       period: form.period,
       amount: Number(form.amount),
-      notes: form.notes,
+      // Free-form "Add field" rows (replaces the old Notes).
+      extraFields: cleanExtraFields(form.extra),
     };
     if (form.startDate) payload.startDate = form.startDate;
     if (form.endDate) payload.endDate = form.endDate;
@@ -1187,7 +1370,7 @@ function BudgetDialog({ open, onClose, onSave, budget, saving, error }) {
               sx={{ flex: 1, minWidth: 160 }}
             />
           </Box>
-          <TextField label="Notes" value={form.notes} onChange={set('notes')} fullWidth multiline minRows={2} />
+          <ExtraFieldsEditor rows={form.extra} onChange={(rows) => setForm((f) => ({ ...f, extra: rows }))} />
         </Stack>
       </DialogContent>
       <DialogActions>

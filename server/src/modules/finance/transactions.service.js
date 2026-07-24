@@ -33,7 +33,12 @@ function buildFilter(query = {}) {
 
   if (query.search) {
     const rx = new RegExp(escapeRegex(query.search), 'i');
-    filter.$or = [{ description: rx }, { 'party.name': rx }];
+    filter.$or = [
+      { description: rx },
+      { 'party.name': rx },
+      { 'extraFields.name': rx },
+      { 'extraFields.value': rx },
+    ];
   }
 
   return filter;
@@ -241,6 +246,7 @@ export async function listCustomPaymentMethods() {
 const UPDATABLE = [
   'type', 'amount', 'currency', 'date', 'category', 'description',
   'paymentMethod', 'paymentRef', 'paymentMethodOther', 'party', 'linkedTo', 'isRecurring', 'recurringNote', 'tags',
+  'extraFields',
 ];
 
 export async function updateTransaction(id, data) {

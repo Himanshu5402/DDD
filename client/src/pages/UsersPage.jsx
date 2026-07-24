@@ -44,10 +44,11 @@ export default function UsersPage() {
       // New mirror rows can land in every module — refetch the lot.
       qc.invalidateQueries();
       const counts = res?.data;
+      const deactivated = counts?.removed?.employees;
       setSnack({
         severity: 'success',
         message: counts?.employees != null
-          ? `HRMS sync complete — ${counts.employees} employees updated`
+          ? `HRMS sync complete — ${counts.employees} employees updated${deactivated ? `, ${deactivated} deactivated` : ''}`
           : res?.message || 'HRMS sync complete',
       });
     },

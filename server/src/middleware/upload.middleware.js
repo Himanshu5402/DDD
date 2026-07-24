@@ -18,6 +18,18 @@ export const uploadReportMedia = multer({
   },
 }).array('files', 10);
 
+// Single data file for the bulk form import (/import/parse).
+const IMPORT_FILE_RX = /\.(xlsx|xls|csv|pdf)$/i;
+
+export const uploadImportFile = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    if (IMPORT_FILE_RX.test(file.originalname)) return cb(null, true);
+    return cb(ApiError.badRequest('Only .xlsx, .xls, .csv or .pdf files are allowed'));
+  },
+}).single('file');
+
 /** Wrap multer so its errors become our ApiError envelope. */
 export function handleUpload(mw) {
   return (req, res, next) =>

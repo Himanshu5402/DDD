@@ -5,7 +5,9 @@ import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import SearchIcon from '@mui/icons-material/Search';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 import { erpSuppliersApi, erpCustomersApi, erpErrorMessage } from '../../api/erp.api.js';
+import ImportDialog from '../../components/import/ImportDialog.jsx';
 import { ErpTable, RecordDialog, rowsOf, totalOf, useSnack } from './erpCommon.jsx';
 
 // ERP suppliers/customers live in DDD as Contact mirrors with the full ERP
@@ -36,6 +38,29 @@ const COLUMNS = [
   },
 ];
 
+/* ------------------------- File import (Excel/PDF) ------------------------ */
+
+// Keys mirror the server contactBodySchema (suppliers and customers share it).
+const CONTACT_IMPORT_FIELDS = [
+  { key: 'name', label: 'Name', required: true },
+  { key: 'contact', label: 'Contact number' },
+  { key: 'email', label: 'Email' },
+  { key: 'gstin', label: 'GSTIN' },
+  { key: 'address', label: 'Address' },
+  { key: 'notes', label: 'Notes' },
+];
+
+function buildContactImportPayload(m) {
+  if (!m.name) throw new Error('Name is required');
+  const payload = { name: m.name };
+  if (m.contact) payload.contact = m.contact;
+  if (m.email) payload.email = m.email;
+  if (m.gstin) payload.gstin = m.gstin;
+  if (m.address) payload.address = m.address;
+  if (m.notes) payload.notes = m.notes;
+  return payload;
+}
+
 const KINDS = [
   { key: 'suppliers', label: 'Suppliers', singular: 'supplier', api: erpSuppliersApi },
   { key: 'customers', label: 'Customers', singular: 'customer', api: erpCustomersApi },
@@ -46,6 +71,7 @@ function MastersPanel({ kind }) {
   const { setSnack, snackEl } = useSnack();
   const [search, setSearch] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [saveError, setSaveError] = useState('');
 
@@ -103,6 +129,9 @@ function MastersPanel({ kind }) {
         />
         <Chip label={`${total} total`} size="small" />
         <Box sx={{ flex: 1 }} />
+        <Button variant="outlined" startIcon={<UploadFileIcon />} onClick={() => setImportOpen(true)}>
+          Import
+        </Button>
         <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setEditing(null); setSaveError(''); setDialogOpen(true); }}>
           New {kind.singular}
         </Button>
@@ -139,6 +168,17 @@ function MastersPanel({ kind }) {
         title={editing ? `Edit ${editing.name}` : `New ${kind.singular}`}
         fields={FIELDS}
         record={editing}
+      />
+
+      <ImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        title={`Import ${kind.label.toLowerCase()} from Excel / PDF`}
+        entity={`ERP ${kind.label.toLowerCase()} (business contacts: name, phone, email, GSTIN, address)`}
+        fields={CONTACT_IMPORT_FIELDS}
+        buildPayload={buildContactImportPayload}
+        createFn={(p) => kind.api.create(p)}
+        onDone={invalidate}
       />
 
       {snackEl}

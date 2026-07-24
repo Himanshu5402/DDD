@@ -30,7 +30,10 @@ import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
+import VisibilityIcon from '@mui/icons-material/VisibilityOutlined';
 import PageHeader from '../../components/ui/PageHeader.jsx';
+import ImportDialog from '../../components/import/ImportDialog.jsx';
 import {
   payrollApi,
   PAYROLL_STATUSES,
@@ -69,6 +72,40 @@ const EMPTY_FORM = {
   byDepartment: [],
 };
 
+/* ------------------------- File import (Excel/PDF) ------------------------ */
+
+const PAYROLL_IMPORT_FIELDS = [
+  { key: 'month', label: 'Month', required: true, hint: 'YYYY-MM' },
+  { key: 'status', label: 'Status', hint: 'draft / processing / processed / paid' },
+  { key: 'totalCost', label: 'Total cost', hint: 'number ≥ 0' },
+  { key: 'headcount', label: 'Headcount', hint: 'number ≥ 0' },
+  { key: 'reimbursementsPending', label: 'Reimbursements pending', hint: 'count' },
+  { key: 'reimbursementsAmount', label: 'Reimbursements amount', hint: 'number ≥ 0' },
+];
+
+function buildPayrollImportPayload(m) {
+  const month = (m.month || '').trim();
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error('Month must be in YYYY-MM format');
+  const payload = { month };
+  const status = (m.status || '').toLowerCase().trim();
+  if (status) {
+    if (!PAYROLL_STATUSES.includes(status)) {
+      throw new Error(`Status must be one of: ${PAYROLL_STATUSES.join(', ')}`);
+    }
+    payload.status = status;
+  }
+  const num = (label, v) => {
+    const n = Number(String(v).replace(/[^0-9.-]/g, ''));
+    if (!Number.isFinite(n) || n < 0) throw new Error(`${label} must be a number ≥ 0`);
+    return n;
+  };
+  if (m.totalCost) payload.totalCost = num('Total cost', m.totalCost);
+  if (m.headcount) payload.headcount = num('Headcount', m.headcount);
+  if (m.reimbursementsPending) payload.reimbursementsPending = num('Reimbursements pending', m.reimbursementsPending);
+  if (m.reimbursementsAmount) payload.reimbursementsAmount = num('Reimbursements amount', m.reimbursementsAmount);
+  return payload;
+}
+
 export default function PayrollPage() {
   const qc = useQueryClient();
   // Owner-only console: RBAC removed — full access for every signed-in user.
@@ -77,10 +114,12 @@ export default function PayrollPage() {
   const [status, setStatus] = useState('');
   const [company, setCompany] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [saveError, setSaveError] = useState('');
   const [runDialogOpen, setRunDialogOpen] = useState(false);
   const [runError, setRunError] = useState('');
+  const [viewing, setViewing] = useState(null); // period whose detail dialog is open
   const [snack, setSnack] = useState(null); // { severity, message }
 
   const { data: companies = [] } = useQuery({
@@ -177,7 +216,7 @@ export default function PayrollPage() {
     <Box>
       <PageHeader
         title="Payroll"
-        subtitle="Monthly payroll cost roll-ups — the owner view. Aggregates only, never individual salaries."
+        subtitle="Monthly payroll — cost roll-ups plus every employee's salary breakup and reimbursements, synced from HRMS."
         action={
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
             <Chip label={`${total} periods`} />
@@ -188,6 +227,11 @@ export default function PayrollPage() {
                 onClick={() => { setRunError(''); setRunDialogOpen(true); }}
               >
                 Run payroll in HRMS
+              </Button>
+            )}
+            {perms.create && (
+              <Button variant="outlined" startIcon={<UploadFileIcon />} onClick={() => setImportOpen(true)}>
+                Import
               </Button>
             )}
             {perms.create && (
@@ -375,6 +419,11 @@ export default function PayrollPage() {
                     <TableCell align="right">{formatInr(p.totalCost)}</TableCell>
                     <TableCell align="right">{p.reimbursementsPending ?? 0}</TableCell>
                     <TableCell align="right">
+                      <Tooltip title="View salaries & reimbursements">
+                        <IconButton size="small" onClick={() => setViewing(p)}>
+                          <VisibilityIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                       {perms.update && (
                         <Tooltip title={isHrms ? 'Managed by HRMS — read only' : 'Edit'}>
                           <span>
@@ -418,6 +467,19 @@ export default function PayrollPage() {
         onRun={(month) => runHrmsMutation.mutate(month)}
         running={runHrmsMutation.isPending}
         error={runError}
+      />
+
+      <PeriodDetailDialog period={viewing} onClose={() => setViewing(null)} />
+
+      <ImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Import payroll periods from Excel / PDF"
+        entity="monthly payroll period cost roll-ups (aggregates, never individual salaries)"
+        fields={PAYROLL_IMPORT_FIELDS}
+        buildPayload={buildPayrollImportPayload}
+        createFn={(payload) => payrollApi.create(payload)}
+        onDone={invalidate}
       />
 
       <Snackbar
@@ -635,6 +697,148 @@ function PeriodDialog({ open, onClose, onSave, period, companies, saving, error 
         <Button variant="contained" onClick={submit} disabled={!canSubmit}>
           {saving ? 'Saving…' : 'Save'}
         </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+/**
+ * Read-only per-period detail: every employee's salary breakup (mirrored from
+ * HRMS payroll) and the month's reimbursement claims.
+ */
+function PeriodDetailDialog({ period, onClose }) {
+  const entries = period?.entries || [];
+  const reimbursements = period?.reimbursements || [];
+
+  const totals = entries.reduce(
+    (acc, e) => {
+      acc.gross += e.gross || 0;
+      acc.deductions += e.deductions || 0;
+      acc.net += e.net || 0;
+      return acc;
+    },
+    { gross: 0, deductions: 0, net: 0 }
+  );
+
+  return (
+    <Dialog open={Boolean(period)} onClose={onClose} fullWidth maxWidth="lg">
+      <DialogTitle>
+        Payroll {period?.month} — salaries & payments
+        {period?.paidOn && (
+          <Typography component="span" variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+            paid on {period.paidOn}
+          </Typography>
+        )}
+      </DialogTitle>
+      <DialogContent>
+        {entries.length === 0 ? (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            No per-employee detail for this period yet — press the HRMS sync (sidebar widget or
+            Users page) to pull the full salary breakup.
+          </Alert>
+        ) : (
+          <Box sx={{ overflowX: 'auto', border: '1px solid', borderColor: 'divider', borderRadius: 1, mb: 2 }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Employee</TableCell>
+                  <TableCell>Department</TableCell>
+                  <TableCell align="right">Gross</TableCell>
+                  <TableCell align="right">Basic</TableCell>
+                  <TableCell align="right">HRA</TableCell>
+                  <TableCell align="right">Special</TableCell>
+                  <TableCell align="right">PF</TableCell>
+                  <TableCell align="right">PT</TableCell>
+                  <TableCell align="right">TDS</TableCell>
+                  <TableCell align="right">Deductions</TableCell>
+                  <TableCell align="right">Net pay</TableCell>
+                  <TableCell>Paid</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {entries.map((e) => (
+                  <TableRow key={e.empId || e.name} hover>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>{e.name || '—'}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {e.empId}{e.designation ? ` · ${e.designation}` : ''}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>{e.department || '—'}</TableCell>
+                    <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>{formatInr(e.gross)}</TableCell>
+                    <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>{formatInr(e.basic)}</TableCell>
+                    <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>{formatInr(e.hra)}</TableCell>
+                    <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>{formatInr(e.special)}</TableCell>
+                    <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>{formatInr(e.pf)}</TableCell>
+                    <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>{formatInr(e.pt)}</TableCell>
+                    <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>{formatInr(e.tds)}</TableCell>
+                    <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>{formatInr(e.deductions)}</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{formatInr(e.net)}</TableCell>
+                    <TableCell>
+                      <Chip label={e.paid ? 'Paid' : 'Pending'} size="small" color={e.paid ? 'success' : 'warning'} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+                <TableRow>
+                  <TableCell colSpan={2} sx={{ fontWeight: 700 }}>Totals ({entries.length})</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 700 }}>{formatInr(totals.gross)}</TableCell>
+                  <TableCell colSpan={6} />
+                  <TableCell align="right" sx={{ fontWeight: 700 }}>{formatInr(totals.deductions)}</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 700 }}>{formatInr(totals.net)}</TableCell>
+                  <TableCell />
+                </TableRow>
+              </TableBody>
+            </Table>
+          </Box>
+        )}
+
+        <Typography variant="subtitle2" sx={{ mb: 1 }}>
+          Reimbursements — {period?.month} ({reimbursements.length})
+        </Typography>
+        {reimbursements.length === 0 ? (
+          <Typography variant="body2" color="text.secondary">
+            No reimbursement claims dated in this month.
+          </Typography>
+        ) : (
+          <Box sx={{ overflowX: 'auto', border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Code</TableCell>
+                  <TableCell>Employee</TableCell>
+                  <TableCell>Title</TableCell>
+                  <TableCell>Category</TableCell>
+                  <TableCell align="right">Amount</TableCell>
+                  <TableCell>Date</TableCell>
+                  <TableCell>Status</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {reimbursements.map((r) => (
+                  <TableRow key={r.code} hover>
+                    <TableCell sx={{ fontFamily: 'monospace' }}>{r.code}</TableCell>
+                    <TableCell>{r.empId}</TableCell>
+                    <TableCell>{r.title || '—'}</TableCell>
+                    <TableCell>{r.category || '—'}</TableCell>
+                    <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>{formatInr(r.amount)}</TableCell>
+                    <TableCell sx={{ whiteSpace: 'nowrap' }}>{r.date || '—'}</TableCell>
+                    <TableCell>
+                      <Chip
+                        label={r.status || '—'}
+                        size="small"
+                        color={r.status === 'Paid' ? 'success' : r.status === 'Approved' ? 'info' : r.status === 'Rejected' ? 'error' : 'warning'}
+                        variant="outlined"
+                      />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button variant="contained" onClick={onClose}>Close</Button>
       </DialogActions>
     </Dialog>
   );

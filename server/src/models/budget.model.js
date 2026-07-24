@@ -14,6 +14,14 @@ const budgetSchema = new Schema(
     startDate: { type: Date },
     endDate: { type: Date },
     notes: { type: String, default: '' },
+    // Free-form per-budget fields added in the form ("Add field"),
+    // mirroring Product.specs.
+    extraFields: [
+      {
+        name: { type: String, required: true, trim: true },
+        value: { type: String, default: '', trim: true },
+      },
+    ],
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
   },
   { timestamps: true }

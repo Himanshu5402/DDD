@@ -36,7 +36,9 @@ import SearchIcon from '@mui/icons-material/Search';
 import LockIcon from '@mui/icons-material/LockOutlined';
 import PaletteIcon from '@mui/icons-material/PaletteOutlined';
 import ClearIcon from '@mui/icons-material/Clear';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 import PageHeader from '../../components/ui/PageHeader.jsx';
+import ImportDialog from '../../components/import/ImportDialog.jsx';
 import api, { getErrorMessage } from '../../lib/axios.js';
 import { getSocket, connectSocket } from '../../lib/socket.js';
 import {
@@ -334,6 +336,7 @@ function ResourcePanel({ resource, perms, refData }) {
   const [search, setSearch] = useState('');
   const [filterValue, setFilterValue] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [saveError, setSaveError] = useState('');
 
@@ -406,6 +409,11 @@ function ResourcePanel({ resource, perms, refData }) {
         )}
         {total != null && <Chip label={`${total} total`} size="small" />}
         <Box sx={{ flex: 1 }} />
+        {perms.create && resource.importConfig && (
+          <Button variant="outlined" startIcon={<UploadFileIcon />} onClick={() => setImportOpen(true)}>
+            Import
+          </Button>
+        )}
         {perms.create && (
           <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
             New {resource.singular.toLowerCase()}
@@ -525,14 +533,147 @@ function ResourcePanel({ resource, perms, refData }) {
         record={editing}
         refData={refData}
       />
+
+      {resource.importConfig && (
+        <ImportDialog
+          open={importOpen}
+          onClose={() => setImportOpen(false)}
+          title={resource.importConfig.title}
+          entity={resource.importConfig.entity}
+          fields={resource.importConfig.fields}
+          buildPayload={resource.importConfig.buildPayload}
+          createFn={(payload) => resource.api.create(payload)}
+          onDone={invalidate}
+        />
+      )}
     </Box>
   );
+}
+
+// --- File import (Excel/PDF) ------------------------------------------------
+// Keys mirror the server-side create schemas (renewals/campaigns/tickets/
+// contacts .validation.js). Enum values are lowercased and silently dropped
+// when they don't match; ObjectId refs (customer/product/owner/assignee) and
+// nested objects (campaign metrics, ticket SLA) are not importable from files.
+const asEnum = (v) => String(v || '').toLowerCase().trim().replace(/\s+/g, '_');
+const asBool = (v) => ['yes', 'true', 'y', '1'].includes(String(v).toLowerCase().trim());
+
+const RENEWAL_IMPORT_FIELDS = [
+  { key: 'title', label: 'Title', required: true },
+  { key: 'leadId', label: 'Lead ID', required: true, hint: 'locked after create' },
+  { key: 'amount', label: 'Amount', hint: 'number ≥ 0' },
+  { key: 'currency', label: 'Currency', hint: 'e.g. INR' },
+  { key: 'dueDate', label: 'Due date', hint: 'YYYY-MM-DD' },
+  { key: 'status', label: 'Status', hint: 'upcoming / due / renewed / expired / cancelled' },
+  { key: 'autoRenew', label: 'Auto-renew', hint: 'yes / no' },
+  { key: 'notes', label: 'Notes' },
+];
+
+function buildRenewalImportPayload(m) {
+  if (!m.title) throw new Error('Title is required');
+  if (!m.leadId) throw new Error('Lead ID is required');
+  const payload = { title: m.title, leadId: m.leadId };
+  if (m.amount) {
+    const amount = Number(String(m.amount).replace(/[^0-9.-]/g, ''));
+    if (!Number.isFinite(amount) || amount < 0) throw new Error('Amount must be a number ≥ 0');
+    payload.amount = amount;
+  }
+  if (m.currency) payload.currency = m.currency;
+  if (m.dueDate) payload.dueDate = m.dueDate;
+  const status = asEnum(m.status);
+  if (RENEWAL_STATUSES.includes(status)) payload.status = status;
+  if (m.autoRenew) payload.autoRenew = asBool(m.autoRenew);
+  if (m.notes) payload.notes = m.notes;
+  return payload;
+}
+
+const CAMPAIGN_IMPORT_FIELDS = [
+  { key: 'name', label: 'Name', required: true },
+  { key: 'channel', label: 'Channel', hint: 'email / social / ads / event / other' },
+  { key: 'status', label: 'Status', hint: 'draft / active / paused / completed' },
+  { key: 'budget', label: 'Budget', hint: 'number ≥ 0' },
+  { key: 'startDate', label: 'Start date', hint: 'YYYY-MM-DD' },
+  { key: 'endDate', label: 'End date', hint: 'YYYY-MM-DD' },
+];
+
+function buildCampaignImportPayload(m) {
+  if (!m.name) throw new Error('Name is required');
+  const payload = { name: m.name };
+  const channel = asEnum(m.channel);
+  if (CAMPAIGN_CHANNELS.includes(channel)) payload.channel = channel;
+  const status = asEnum(m.status);
+  if (CAMPAIGN_STATUSES.includes(status)) payload.status = status;
+  if (m.budget) {
+    const budget = Number(String(m.budget).replace(/[^0-9.-]/g, ''));
+    if (!Number.isFinite(budget) || budget < 0) throw new Error('Budget must be a number ≥ 0');
+    payload.budget = budget;
+  }
+  if (m.startDate) payload.startDate = m.startDate;
+  if (m.endDate) payload.endDate = m.endDate;
+  return payload;
+}
+
+const TICKET_IMPORT_FIELDS = [
+  { key: 'subject', label: 'Subject', required: true },
+  { key: 'description', label: 'Description' },
+  { key: 'priority', label: 'Priority', hint: 'low / medium / high / urgent' },
+  { key: 'status', label: 'Status', hint: 'open / in_progress / waiting / resolved / closed' },
+  { key: 'comment', label: 'First comment' },
+];
+
+function buildTicketImportPayload(m) {
+  if (!m.subject) throw new Error('Subject is required');
+  const payload = { subject: m.subject };
+  if (m.description) payload.description = m.description;
+  const priority = asEnum(m.priority);
+  if (TICKET_PRIORITIES.includes(priority)) payload.priority = priority;
+  const status = asEnum(m.status);
+  if (TICKET_STATUSES.includes(status)) payload.status = status;
+  if (m.comment) payload.comment = m.comment;
+  return payload;
+}
+
+const CONTACT_IMPORT_FIELDS = [
+  { key: 'name', label: 'Name', required: true },
+  { key: 'type', label: 'Type', hint: 'lead / customer / supplier' },
+  { key: 'company', label: 'Company' },
+  { key: 'email', label: 'Email' },
+  { key: 'phone', label: 'Phone' },
+  { key: 'status', label: 'Status', hint: 'new / contacted / qualified / active / inactive / lost' },
+  { key: 'source', label: 'Lead source', hint: 'e.g. referral, website' },
+  { key: 'tags', label: 'Tags', hint: 'comma separated' },
+  { key: 'notes', label: 'Notes' },
+];
+
+function buildContactImportPayload(m) {
+  if (!m.name) throw new Error('Name is required');
+  const payload = { name: m.name };
+  const type = asEnum(m.type);
+  if (CONTACT_TYPES.includes(type)) payload.type = type;
+  if (m.company) payload.company = m.company;
+  if (m.email) payload.email = m.email.toLowerCase();
+  if (m.phone) payload.phone = m.phone;
+  const status = asEnum(m.status);
+  if (CONTACT_STATUSES.includes(status)) payload.status = status;
+  if (m.source) payload.source = m.source;
+  if (m.tags) {
+    const tags = String(m.tags).split(',').map((s) => s.trim()).filter(Boolean);
+    if (tags.length) payload.tags = tags;
+  }
+  if (m.notes) payload.notes = m.notes;
+  return payload;
 }
 
 // --- Resource configs -------------------------------------------------------
 const RESOURCES = [
   {
     key: 'renewals', tabLabel: 'Renewals', singular: 'Renewal', queryKey: 'rrrmas-renewals', api: renewalsApi, rowColor: true,
+    importConfig: {
+      title: 'Import renewals from Excel / PDF',
+      entity: 'customer renewals (contracts / subscriptions due for renewal)',
+      fields: RENEWAL_IMPORT_FIELDS,
+      buildPayload: buildRenewalImportPayload,
+    },
     columns: [
       { key: 'title', label: 'Title', primary: true },
       {
@@ -576,6 +717,12 @@ const RESOURCES = [
   },
   {
     key: 'campaigns', tabLabel: 'Campaigns', singular: 'Campaign', queryKey: 'rrrmas-campaigns', api: campaignsApi,
+    importConfig: {
+      title: 'Import campaigns from Excel / PDF',
+      entity: 'marketing campaigns',
+      fields: CAMPAIGN_IMPORT_FIELDS,
+      buildPayload: buildCampaignImportPayload,
+    },
     columns: [
       { key: 'name', label: 'Name', primary: true },
       { key: 'channel', label: 'Channel', chip: true },
@@ -599,6 +746,12 @@ const RESOURCES = [
   },
   {
     key: 'tickets', tabLabel: 'Support', singular: 'Ticket', queryKey: 'rrrmas-tickets', api: ticketsApi,
+    importConfig: {
+      title: 'Import support tickets from Excel / PDF',
+      entity: 'customer support tickets',
+      fields: TICKET_IMPORT_FIELDS,
+      buildPayload: buildTicketImportPayload,
+    },
     columns: [
       { key: 'subject', label: 'Subject', primary: true },
       { key: 'customer', label: 'Customer', render: (r) => r.customer?.name || '—' },
@@ -627,6 +780,12 @@ const RESOURCES = [
   },
   {
     key: 'contacts', tabLabel: 'Contacts', singular: 'Contact', queryKey: 'rrrmas-contacts', api: contactsApi,
+    importConfig: {
+      title: 'Import contacts from Excel / PDF',
+      entity: 'CRM contacts (leads, customers and suppliers)',
+      fields: CONTACT_IMPORT_FIELDS,
+      buildPayload: buildContactImportPayload,
+    },
     filter: { name: 'type', label: 'Type', options: CONTACT_TYPES },
     // ERP-mirrored contacts are managed in the ERP section — the server rejects
     // edits/deletes with 409 ERP_MANAGED; grey the buttons out up front.

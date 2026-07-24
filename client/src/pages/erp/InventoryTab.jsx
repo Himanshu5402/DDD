@@ -5,9 +5,11 @@ import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import SearchIcon from '@mui/icons-material/Search';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 import { erpRawMaterialsApi, erpSuppliersApi, erpErrorMessage, RAW_MATERIAL_STATUSES } from '../../api/erp.api.js';
+import ImportDialog from '../../components/import/ImportDialog.jsx';
 import {
-  ErpTable, Mono, RecordDialog, StatusChip, formatDate, humanize, rowsOf, totalOf, useSnack,
+  ErpTable, Mono, RecordDialog, StatusChip, formatDate, humanize, rowsOf, splitCodes, totalOf, useSnack,
 } from './erpCommon.jsx';
 
 const COLUMNS = [
@@ -31,6 +33,39 @@ const EDIT_FIELDS = [
   { name: 'remarks', label: 'Remarks', type: 'textarea', full: true },
 ];
 
+/* ------------------------- File import (Excel/PDF) ------------------------ */
+
+// Keys mirror the server receiveRawMaterialsSchema. One row = one batch: the
+// ERP creates `quantity` barcoded units per row. supplierExternalId is an ERP
+// Mongo id (picker-only in the dialog) so it is not importable from a file.
+const RECEIVE_IMPORT_FIELDS = [
+  { key: 'materialType', label: 'Material type', required: true, hint: 'e.g. RAM, SSD, CPU' },
+  { key: 'quantity', label: 'Quantity', required: true, hint: 'whole number 1–500' },
+  { key: 'serials', label: 'Supplier serials', hint: 'comma / newline separated' },
+  { key: 'purchaseDate', label: 'Purchase date', hint: 'YYYY-MM-DD' },
+  { key: 'model', label: 'Model' },
+  { key: 'specification', label: 'Specification' },
+  { key: 'warranty', label: 'Warranty' },
+  { key: 'remarks', label: 'Remarks' },
+];
+
+function buildReceiveImportPayload(m) {
+  if (!m.materialType) throw new Error('Material type is required');
+  const quantity = Number(String(m.quantity).replace(/[^0-9.-]/g, ''));
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 500) {
+    throw new Error('Quantity must be a whole number between 1 and 500');
+  }
+  const payload = { materialType: m.materialType, quantity };
+  const serials = splitCodes(m.serials);
+  if (serials.length) payload.serials = serials;
+  if (m.purchaseDate) payload.purchaseDate = m.purchaseDate;
+  if (m.model) payload.model = m.model;
+  if (m.specification) payload.specification = m.specification;
+  if (m.warranty) payload.warranty = m.warranty;
+  if (m.remarks) payload.remarks = m.remarks;
+  return payload;
+}
+
 export default function InventoryTab() {
   const qc = useQueryClient();
   const { setSnack, snackEl } = useSnack();
@@ -38,6 +73,7 @@ export default function InventoryTab() {
   const [type, setType] = useState('');
   const [status, setStatus] = useState('');
   const [receiveOpen, setReceiveOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [saveError, setSaveError] = useState('');
 
@@ -141,6 +177,9 @@ export default function InventoryTab() {
         </TextField>
         <Chip label={`${total} total`} size="small" />
         <Box sx={{ flex: 1 }} />
+        <Button variant="outlined" startIcon={<UploadFileIcon />} onClick={() => setImportOpen(true)}>
+          Import
+        </Button>
         <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setSaveError(''); setReceiveOpen(true); }}>
           Receive batch
         </Button>
@@ -191,6 +230,17 @@ export default function InventoryTab() {
         title={`Edit ${editing?.barcode || 'raw material'}`}
         fields={EDIT_FIELDS}
         record={editing}
+      />
+
+      <ImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Import raw material batches from Excel / PDF"
+        entity="ERP raw material batches (received stock: material type, quantity, serials)"
+        fields={RECEIVE_IMPORT_FIELDS}
+        buildPayload={buildReceiveImportPayload}
+        createFn={(p) => erpRawMaterialsApi.create(p)}
+        onDone={invalidate}
       />
 
       {snackEl}

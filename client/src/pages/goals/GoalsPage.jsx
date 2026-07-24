@@ -14,7 +14,9 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import FlagIcon from '@mui/icons-material/OutlinedFlag';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 import PageHeader from '../../components/ui/PageHeader.jsx';
+import ImportDialog from '../../components/import/ImportDialog.jsx';
 import {
   goalsApi, GOAL_TYPES, GOAL_TYPE_LABELS, GOAL_STATUSES, GOAL_STATUS_LABELS, GOAL_STATUS_COLOR,
 } from '../../api/goals.api.js';
@@ -60,6 +62,62 @@ const SOFT_CHIP = {
 
 const statusChipSx = (status) => SOFT_CHIP[GOAL_STATUS_COLOR[status]] || SOFT_CHIP.default;
 
+/* ------------------------- File import (Excel/PDF) ------------------------ */
+
+const GOAL_IMPORT_FIELDS = [
+  { key: 'title', label: 'Title', required: true },
+  { key: 'description', label: 'Description' },
+  { key: 'type', label: 'Type', hint: 'daily / weekly / monthly / quarterly / yearly…' },
+  { key: 'status', label: 'Status', hint: 'not_started / in_progress / on_track / at_risk / achieved / abandoned' },
+  { key: 'startDate', label: 'Start date', hint: 'YYYY-MM-DD' },
+  { key: 'targetDate', label: 'Target date', hint: 'YYYY-MM-DD' },
+  { key: 'progress', label: 'Progress %', hint: '0–100' },
+  { key: 'targetMetric', label: 'Target metric', hint: 'e.g. New clients' },
+  { key: 'targetUnit', label: 'Target unit', hint: 'e.g. clients' },
+  { key: 'targetValue', label: 'Target value', hint: 'number' },
+  { key: 'tags', label: 'Tags', hint: 'comma-separated' },
+];
+
+// Normalize enum-ish text from files ("Half-Yearly", "On Track") to schema slugs.
+const toSlug = (v) => String(v || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+
+function buildGoalImportPayload(m) {
+  if (!m.title) throw new Error('Title is required');
+  const payload = { title: m.title };
+  if (m.description) payload.description = m.description;
+  // Accept both raw slugs and the UI's display labels ("2-Year" → two_year).
+  const typeSlug = toSlug(m.type);
+  const type = GOAL_TYPES.includes(typeSlug)
+    ? typeSlug
+    : GOAL_TYPES.find((k) => toSlug(GOAL_TYPE_LABELS[k]) === typeSlug);
+  if (type) payload.type = type;
+  const status = toSlug(m.status);
+  if (GOAL_STATUSES.includes(status)) payload.status = status;
+  if (m.startDate) payload.startDate = m.startDate;
+  if (m.targetDate) payload.targetDate = m.targetDate;
+  if (m.progress) {
+    const progress = Number(String(m.progress).replace(/[^0-9.-]/g, ''));
+    if (!Number.isFinite(progress)) throw new Error('Progress must be a number between 0 and 100');
+    payload.progress = Math.min(100, Math.max(0, progress));
+  }
+  if (m.targetMetric || m.targetUnit || m.targetValue) {
+    const target = {};
+    if (m.targetMetric) target.metric = m.targetMetric;
+    if (m.targetUnit) target.unit = m.targetUnit;
+    if (m.targetValue) {
+      const targetValue = Number(String(m.targetValue).replace(/[^0-9.-]/g, ''));
+      if (!Number.isFinite(targetValue)) throw new Error('Target value must be a number');
+      target.targetValue = targetValue;
+    }
+    payload.target = target;
+  }
+  if (m.tags) {
+    const tags = m.tags.split(',').map((t) => t.trim()).filter(Boolean);
+    if (tags.length) payload.tags = tags;
+  }
+  return payload;
+}
+
 export default function GoalsPage() {
   const qc = useQueryClient();
   // Owner-only console: RBAC removed — full access for every signed-in user.
@@ -69,6 +127,7 @@ export default function GoalsPage() {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [saveError, setSaveError] = useState('');
   const [detailId, setDetailId] = useState(null);
@@ -123,6 +182,7 @@ export default function GoalsPage() {
               onChange={(e) => setSearch(e.target.value)}
               InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
             />
+            {canCreate && <Button variant="outlined" startIcon={<UploadFileIcon />} onClick={() => setImportOpen(true)}>Import</Button>}
             {canCreate && <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>New goal</Button>}
           </Box>
         }
@@ -187,6 +247,17 @@ export default function GoalsPage() {
         onClose={() => setDetailId(null)}
         onEdit={(goal) => { setDetailId(null); openEdit(goal); }}
         onChanged={invalidate}
+      />
+
+      <ImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Import goals from Excel / PDF"
+        entity="goals (personal and business objectives with progress targets)"
+        fields={GOAL_IMPORT_FIELDS}
+        buildPayload={buildGoalImportPayload}
+        createFn={(payload) => goalsApi.create(payload)}
+        onDone={invalidate}
       />
     </Box>
   );

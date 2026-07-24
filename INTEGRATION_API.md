@@ -33,7 +33,7 @@ Base: `http://<HRMS_HOST>:5000/api/v1/integration` — all `x-api-key`. Every op
 ### Bootstrap (full snapshot)
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/bootstrap` | `{employees, attendance(60d), leaves, payroll[{run, aggregates}], openings, candidates, eveningReports(30d)}` — used by DDD "Sync now" |
+| GET | `/bootstrap` | `{employees, attendance(60d), leaves, payroll[{run, aggregates, rows}], openings, candidates, eveningReports(30d), expenses}` — used by DDD "Sync now". `rows` = per-employee salary breakup {empId,name,dept,role,join,gross,basic,hra,special,pf,pt,tds,ded,net,paid}; `expenses` = all reimbursement claims (folded into payroll months). DDD also reconciles deletions from the complete lists (employees→deactivate, leaves/candidates→remove, openings→close) |
 
 ### Employees
 | Method | Path | Body |
@@ -120,7 +120,7 @@ Base: `http://<DDD_HOST>:5500/api/v1`
 | `employee.created` / `employee.updated` / `employee.status_changed` / `employee.deleted` | employee CRUD, access change | Upsert `User` on `hrmsId=empId` (name/email/dept/designation/status/accessLevel maps) |
 | `attendance.marked` | check-in/out, admin mark | Upsert `EmployeeRecord` on `{user,date}` |
 | `leave.created` / `leave.decided` / `leave.deleted` | leave lifecycle | Upsert `LeaveRequest` on `externalId=LV-*` |
-| `payroll.changed` | run/pay | Upsert `PayrollPeriod` on `{month,'ITSYBIZZ'}` (aggregates only, never individual salaries) |
+| `payroll.changed` | run/pay | Upsert `PayrollPeriod` on `{month,'ITSYBIZZ'}` — aggregates + full per-employee salary `rows` (mirrored into `entries`) |
 | `recruitment.opening.changed` / `.deleted` | opening CRUD | Upsert `JobPosition` on `externalId=JOB-*` |
 | `recruitment.candidate.changed` / `.deleted` | candidate CRUD/stage | Upsert `Candidate` on `externalId=CND-*` |
 | `recruitment.offer.created` | offer letter | Candidate stage → offer + note |

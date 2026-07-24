@@ -7,7 +7,9 @@ import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import SearchIcon from '@mui/icons-material/Search';
 import PersonAddIcon from '@mui/icons-material/PersonAddAlt1';
 import KeyboardReturnIcon from '@mui/icons-material/KeyboardReturn';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 import { erpAssetsApi, erpErrorMessage } from '../../api/erp.api.js';
+import ImportDialog from '../../components/import/ImportDialog.jsx';
 import {
   ErpTable, Mono, RecordDialog, StatusChip, formatDate, rowsOf, totalOf, useSnack,
 } from './erpCommon.jsx';
@@ -39,11 +41,35 @@ const ASSIGN_FIELDS = [
   { name: 'note', label: 'Note', type: 'text' },
 ];
 
+/* ------------------------- File import (Excel/PDF) ------------------------ */
+
+// Keys mirror the server assetBodySchema.
+const ASSET_IMPORT_FIELDS = [
+  { key: 'name', label: 'Name', required: true, hint: 'e.g. Dell Latitude 5440' },
+  { key: 'assetType', label: 'Type', hint: 'Laptop, Monitor, Phone…' },
+  { key: 'tag', label: 'Tag / serial' },
+  { key: 'purchaseDate', label: 'Purchase date', hint: 'YYYY-MM-DD' },
+  { key: 'purchasedBy', label: 'Purchased by' },
+  { key: 'notes', label: 'Notes' },
+];
+
+function buildAssetImportPayload(m) {
+  if (!m.name) throw new Error('Name is required');
+  const payload = { name: m.name };
+  if (m.assetType) payload.assetType = m.assetType;
+  if (m.tag) payload.tag = m.tag;
+  if (m.purchaseDate) payload.purchaseDate = m.purchaseDate;
+  if (m.purchasedBy) payload.purchasedBy = m.purchasedBy;
+  if (m.notes) payload.notes = m.notes;
+  return payload;
+}
+
 export default function AssetsTab() {
   const qc = useQueryClient();
   const { setSnack, snackEl } = useSnack();
   const [search, setSearch] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [assigning, setAssigning] = useState(null);
   const [saveError, setSaveError] = useState('');
@@ -127,6 +153,9 @@ export default function AssetsTab() {
         />
         <Chip label={`${total} total`} size="small" />
         <Box sx={{ flex: 1 }} />
+        <Button variant="outlined" startIcon={<UploadFileIcon />} onClick={() => setImportOpen(true)}>
+          Import
+        </Button>
         <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setEditing(null); setSaveError(''); setDialogOpen(true); }}>
           New asset
         </Button>
@@ -187,6 +216,17 @@ export default function AssetsTab() {
         title={`Assign — ${assigning?.name || ''}`}
         fields={ASSIGN_FIELDS}
         record={null}
+      />
+
+      <ImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Import assets from Excel / PDF"
+        entity="ERP office assets (equipment register: name, type, tag, purchase details)"
+        fields={ASSET_IMPORT_FIELDS}
+        buildPayload={buildAssetImportPayload}
+        createFn={(p) => erpAssetsApi.create(p)}
+        onDone={invalidate}
       />
 
       {snackEl}

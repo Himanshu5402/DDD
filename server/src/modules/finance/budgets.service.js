@@ -14,7 +14,13 @@ function buildFilter(query = {}) {
   if (query.period) filter.period = query.period;
   if (query.search) {
     const rx = new RegExp(escapeRegex(query.search), 'i');
-    filter.$or = [{ name: rx }, { category: rx }, { notes: rx }];
+    filter.$or = [
+      { name: rx },
+      { category: rx },
+      { notes: rx },
+      { 'extraFields.name': rx },
+      { 'extraFields.value': rx },
+    ];
   }
   return filter;
 }
@@ -35,7 +41,7 @@ export async function createBudget(data, user) {
   return Budget.findById(budget._id).populate(POPULATE);
 }
 
-const UPDATABLE = ['name', 'category', 'period', 'amount', 'startDate', 'endDate', 'notes'];
+const UPDATABLE = ['name', 'category', 'period', 'amount', 'startDate', 'endDate', 'notes', 'extraFields'];
 
 export async function updateBudget(id, data) {
   const budget = await Budget.findById(id);

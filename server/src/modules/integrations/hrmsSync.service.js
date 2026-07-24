@@ -17,6 +17,7 @@ import env from '../../config/env.js';
 import logger from '../../config/logger.js';
 import User from '../../models/user.model.js';
 import Company from '../../models/company.model.js';
+import IntegrationState from '../../models/integrationState.model.js';
 import EmployeeRecord from '../../models/employeeRecord.model.js';
 import LeaveRequest from '../../models/leaveRequest.model.js';
 import JobPosition from '../../models/jobPosition.model.js';
@@ -244,38 +245,88 @@ export async function removeLeave(doc) {
 
 /* ============================== Payroll =============================== */
 
+const money = (v) => Math.max(0, Number(v) || 0);
+
 /**
- * {month,status,paidOn,paidEmps,aggregates:{totalCost,headcount,byDepartment}}
- * → PayrollPeriod upsert on {month, ITSYBIZZ company}. Aggregates only —
- * individual salaries never land in DDD.
+ * {month,status,paidOn,paidEmps,aggregates:{totalCost,headcount,byDepartment},
+ * rows:[{empId,name,dept,role,join,gross,basic,hra,special,pf,pt,tds,ded,net,paid}]}
+ * → PayrollPeriod upsert on {month, ITSYBIZZ company} with the FULL
+ * per-employee salary breakup mirrored into `entries`. Optional `expenses`
+ * (that month's HRMS reimbursement claims, bootstrap only) land in
+ * `reimbursements` + the pending roll-up numbers.
  */
-export async function upsertPayroll(p) {
+export async function upsertPayroll(p, { expenses } = {}) {
   if (!p?.month) return null;
   const company = await getItsybizzCompanyId();
   const createdBy = await getSystemUserId();
   if (!createdBy) return null; // cannot satisfy required createdBy — no users yet
   const agg = p.aggregates || {};
 
+  const set = {
+    status: PAYROLL_STATUS_MAP[p.status] || 'draft',
+    currency: 'INR',
+    paidOn: p.paidOn || '',
+    totalCost: money(agg.totalCost),
+    headcount: money(agg.headcount),
+    byDepartment: Array.isArray(agg.byDepartment)
+      ? agg.byDepartment.map((d) => ({
+          department: d.department || '',
+          headcount: money(d.headcount),
+          cost: money(d.cost),
+        }))
+      : [],
+    source: 'hrms',
+    externalId: `HRMSPAY-${p.month}`,
+  };
+
+  // Per-employee salary breakup. Only replace when the payload carries rows —
+  // an old-shape event without them leaves the stored detail untouched.
+  if (Array.isArray(p.rows)) {
+    const entries = [];
+    for (const row of p.rows) {
+      const user = row?.empId ? await findUserByEmpId(row.empId) : null;
+      entries.push({
+        user: user?._id ?? null,
+        empId: row.empId || '',
+        name: row.name || '',
+        department: row.dept || '',
+        designation: row.role || '',
+        joinDate: row.join || '',
+        gross: money(row.gross),
+        basic: money(row.basic),
+        hra: money(row.hra),
+        special: money(row.special),
+        pf: money(row.pf),
+        pt: money(row.pt),
+        tds: money(row.tds),
+        deductions: money(row.ded),
+        net: money(row.net),
+        paid: Boolean(row.paid),
+      });
+    }
+    set.entries = entries;
+  }
+
+  // This month's reimbursement claims (HRMS expense module).
+  if (Array.isArray(expenses)) {
+    set.reimbursements = expenses.map((e) => ({
+      code: e.code || '',
+      empId: e.emp || '',
+      title: e.title || '',
+      category: e.cat || '',
+      amount: money(e.amt),
+      date: e.date || '',
+      status: e.status || '',
+      decidedBy: e.decidedBy || '',
+    }));
+    const pending = expenses.filter((e) => e.status === 'Pending');
+    set.reimbursementsPending = pending.length;
+    set.reimbursementsAmount = pending.reduce((sum, e) => sum + money(e.amt), 0);
+  }
+
   await PayrollPeriod.updateOne(
     { month: p.month, company },
-    {
-      $set: {
-        status: PAYROLL_STATUS_MAP[p.status] || 'draft',
-        currency: 'INR',
-        totalCost: Math.max(0, Number(agg.totalCost) || 0),
-        headcount: Math.max(0, Number(agg.headcount) || 0),
-        byDepartment: Array.isArray(agg.byDepartment)
-          ? agg.byDepartment.map((d) => ({
-              department: d.department || '',
-              headcount: Math.max(0, Number(d.headcount) || 0),
-              cost: Math.max(0, Number(d.cost) || 0),
-            }))
-          : [],
-        source: 'hrms',
-        externalId: `HRMSPAY-${p.month}`,
-      },
-      $setOnInsert: { createdBy },
-    },
+    { $set: set, $setOnInsert: { createdBy } },
     { upsert: true }
   );
   return { month: p.month };
@@ -525,7 +576,29 @@ export async function handleEvent(event, payload = {}) {
 
 /* =========================== Bootstrap sync =========================== */
 
+// In-memory cache over the durable IntegrationState row ('hrms') so the
+// "last synced" label survives server restarts.
 let lastSyncAt = null;
+let lastSyncLoaded = false;
+
+async function loadLastSyncAt() {
+  if (!lastSyncLoaded) {
+    const row = await IntegrationState.findOne({ key: 'hrms' }).lean();
+    lastSyncAt = row?.lastSyncAt ?? null;
+    lastSyncLoaded = true;
+  }
+  return lastSyncAt;
+}
+
+async function saveLastSyncAt(when) {
+  lastSyncAt = when;
+  lastSyncLoaded = true;
+  await IntegrationState.updateOne(
+    { key: 'hrms' },
+    { $set: { lastSyncAt: when } },
+    { upsert: true }
+  );
+}
 
 /**
  * Full mirror rebuild: pull GET {HRMS_API_URL}/integration/bootstrap and replay
@@ -559,7 +632,18 @@ export async function runBootstrapSync() {
   // 2) Attendance → 3) Leaves → 4) Payroll → 5) Openings → 6) Candidates.
   for (const rec of snap.attendance || []) count('attendance', await upsertAttendance(rec));
   for (const leave of snap.leaves || []) count('leaves', await upsertLeave(leave));
-  for (const run of snap.payroll || []) count('payroll', await upsertPayroll(run));
+
+  // Reimbursement claims fold into their payroll month ('YYYY-MM-DD' → 'YYYY-MM').
+  const expensesByMonth = new Map();
+  for (const ex of snap.expenses || []) {
+    const month = String(ex?.date || '').slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(month)) continue;
+    if (!expensesByMonth.has(month)) expensesByMonth.set(month, []);
+    expensesByMonth.get(month).push(ex);
+  }
+  for (const run of snap.payroll || []) {
+    count('payroll', await upsertPayroll(run, { expenses: expensesByMonth.get(run.month) || [] }));
+  }
   for (const opening of snap.openings || []) count('openings', await upsertOpening(opening));
   for (const cand of snap.candidates || []) count('candidates', await upsertCandidate(cand));
 
@@ -574,7 +658,60 @@ export async function runBootstrapSync() {
     count('reports', await upsertEveningReport(report, { notify: isToday && !existed }));
   }
 
-  lastSyncAt = new Date();
+  // 8) Reconcile deletions. The employees/leaves/openings/candidates lists are
+  //    COMPLETE (the HRMS bootstrap sends every non-deleted row), so a mirror
+  //    row missing from the snapshot was deleted in the HRMS. Without this
+  //    pass, HRMS deletions never disappear from DDD (live *.deleted events
+  //    only reach whichever DDD the HRMS's DDD_API_URL points at). Attendance
+  //    (60-day window) and evening reports (30-day window) are windowed
+  //    snapshots and are never reconciled.
+  const removed = { employees: 0, leaves: 0, openings: 0, candidates: 0 };
+
+  if (Array.isArray(snap.employees) && snap.employees.length) {
+    // Guarded on a non-empty list so a malformed snapshot can never deactivate everyone.
+    const liveIds = snap.employees.map((e) => e?.empId).filter(Boolean);
+    const stale = await User.find({ source: 'hrms', hrmsId: { $nin: liveIds }, isActive: true });
+    for (const user of stale) {
+      user.isActive = false;
+      user.employmentStatus = 'exited';
+      user.dateOfExit = user.dateOfExit || new Date();
+      await user.save(); // soft-deactivate only — mirrors are never hard-deleted
+      removed.employees += 1;
+    }
+  }
+
+  if (Array.isArray(snap.leaves)) {
+    const liveCodes = snap.leaves.map((l) => l?.code).filter(Boolean);
+    removed.leaves = (
+      await LeaveRequest.deleteMany({
+        source: 'hrms',
+        externalId: { $exists: true, $ne: null, $nin: liveCodes },
+      })
+    ).deletedCount;
+  }
+
+  if (Array.isArray(snap.openings)) {
+    const liveCodes = snap.openings.map((o) => o?.code).filter(Boolean);
+    removed.openings = (
+      await JobPosition.updateMany(
+        // Placeholder positions resolved from candidate titles carry no externalId — untouched.
+        { source: 'hrms', externalId: { $exists: true, $ne: null, $nin: liveCodes }, status: { $ne: 'closed' } },
+        { $set: { status: 'closed' } }
+      )
+    ).modifiedCount;
+  }
+
+  if (Array.isArray(snap.candidates)) {
+    const liveCodes = snap.candidates.map((c) => c?.code).filter(Boolean);
+    removed.candidates = (
+      await Candidate.deleteMany({
+        sourceSystem: 'hrms',
+        externalId: { $exists: true, $ne: null, $nin: liveCodes },
+      })
+    ).deletedCount;
+  }
+
+  await saveLastSyncAt(new Date());
 
   for (const evt of [
     'users:changed',
@@ -587,8 +724,10 @@ export async function runBootstrapSync() {
     broadcast(evt, { type: 'hrms:bootstrap-sync', at: Date.now() });
   }
 
-  logger.info(`HRMS bootstrap sync complete: ${JSON.stringify(counts)}`);
-  return { status: 'synced', lastSyncAt, ...counts };
+  logger.info(
+    `HRMS bootstrap sync complete: ${JSON.stringify(counts)} removed=${JSON.stringify(removed)}`
+  );
+  return { status: 'synced', lastSyncAt, ...counts, removed };
 }
 
 /* ============================== Status ================================ */
@@ -598,7 +737,8 @@ export async function getStatus() {
   const [hrmsReachable, users, attendance, leaves, payroll, openings, candidates, reports] =
     await Promise.all([
       hrmsClient.pingHrms(),
-      User.countDocuments({ source: 'hrms' }),
+      // Active mirrors only — deactivated (HRMS-deleted) employees don't count.
+      User.countDocuments({ source: 'hrms', isActive: true }),
       EmployeeRecord.countDocuments({ source: 'hrms' }),
       LeaveRequest.countDocuments({ source: 'hrms' }),
       PayrollPeriod.countDocuments({ source: 'hrms' }),
@@ -610,7 +750,7 @@ export async function getStatus() {
   return {
     enabled: env.HRMS_SYNC_ENABLED && hrmsClient.isHrmsConfigured(),
     hrmsReachable,
-    lastSyncAt,
+    lastSyncAt: await loadLastSyncAt(),
     counts: { employees: users, attendance, leaves, payroll, openings, candidates, reports },
   };
 }

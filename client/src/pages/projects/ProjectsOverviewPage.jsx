@@ -14,9 +14,12 @@ import FlagIcon from '@mui/icons-material/OutlinedFlag';
 import RequestQuoteIcon from '@mui/icons-material/RequestQuote';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import BlockIcon from '@mui/icons-material/Block';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 import PageHeader from '../../components/ui/PageHeader.jsx';
+import ImportDialog from '../../components/import/ImportDialog.jsx';
 import api, { getErrorMessage } from '../../lib/axios.js';
 import { integrationsApi, pepsiErrorMessage } from '../../api/integrations.api.js';
+import { projectsApi, PROJECT_STATUSES } from '../../api/rrrmas.api.js';
 import { getSocket, connectSocket } from '../../lib/socket.js';
 
 // ---------- formatting helpers ----------
@@ -127,6 +130,65 @@ function nextMilestone(milestones = []) {
     .sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0))[0];
 }
 
+/* ------------------------- File import (Excel/PDF) ------------------------ */
+
+const PROJECT_IMPORT_FIELDS = [
+  { key: 'name', label: 'Name', required: true },
+  { key: 'description', label: 'Description' },
+  { key: 'status', label: 'Status', hint: 'planning / active / on_hold / completed / cancelled' },
+  { key: 'startDate', label: 'Start date', hint: 'YYYY-MM-DD' },
+  { key: 'endDate', label: 'End date', hint: 'YYYY-MM-DD' },
+  { key: 'budget', label: 'Budget', hint: 'number ≥ 0' },
+  { key: 'contractValue', label: 'Contract value', hint: 'number ≥ 0' },
+  { key: 'progress', label: 'Progress', hint: '0 – 100' },
+  { key: 'pmName', label: 'Project manager', hint: 'name, free text' },
+  { key: 'location', label: 'Location' },
+  { key: 'workType', label: 'Work type', hint: 'HW / SW / HW+SW' },
+  { key: 'health', label: 'Health', hint: 'on_track / at_risk / critical' },
+  { key: 'tags', label: 'Tags', hint: 'comma-separated' },
+];
+
+const PROJECT_IMPORT_WORK_TYPES = ['HW', 'SW', 'HW+SW'];
+const PROJECT_IMPORT_HEALTH = ['on_track', 'at_risk', 'critical'];
+
+function buildProjectImportPayload(m) {
+  if (!m.name) throw new Error('Name is required');
+  const payload = { name: m.name };
+  if (m.description) payload.description = m.description;
+  const status = (m.status || '').toLowerCase().replace(/[\s-]+/g, '_');
+  if (PROJECT_STATUSES.includes(status)) payload.status = status;
+  if (m.startDate) payload.startDate = m.startDate;
+  if (m.endDate) payload.endDate = m.endDate;
+  if (m.budget) {
+    const budget = Number(String(m.budget).replace(/[^0-9.-]/g, ''));
+    if (!Number.isFinite(budget) || budget < 0) throw new Error('Budget must be a number ≥ 0');
+    payload.budget = budget;
+  }
+  if (m.contractValue) {
+    const contractValue = Number(String(m.contractValue).replace(/[^0-9.-]/g, ''));
+    if (!Number.isFinite(contractValue) || contractValue < 0) throw new Error('Contract value must be a number ≥ 0');
+    payload.contractValue = contractValue;
+  }
+  if (m.progress) {
+    const progress = Math.round(Number(String(m.progress).replace(/[^0-9.-]/g, '')));
+    if (!Number.isFinite(progress) || progress < 0 || progress > 100) {
+      throw new Error('Progress must be a number between 0 and 100');
+    }
+    payload.progress = progress;
+  }
+  if (m.pmName) payload.pmName = m.pmName;
+  if (m.location) payload.location = m.location;
+  const workType = (m.workType || '').toUpperCase().replace(/\s+/g, '');
+  if (PROJECT_IMPORT_WORK_TYPES.includes(workType)) payload.workType = workType;
+  const health = (m.health || '').toLowerCase().replace(/[\s-]+/g, '_');
+  if (PROJECT_IMPORT_HEALTH.includes(health)) payload.health = health;
+  if (m.tags) {
+    const tags = m.tags.split(',').map((t) => t.trim()).filter(Boolean);
+    if (tags.length) payload.tags = tags;
+  }
+  return payload;
+}
+
 /** Health rendered as a tiny dot + soft chip. */
 function HealthChip({ health, size = 'small', sx }) {
   if (!health) return null;
@@ -152,6 +214,7 @@ function HealthChip({ health, size = 'small', sx }) {
 export default function ProjectsOverviewPage() {
   const qc = useQueryClient();
   const [selected, setSelected] = useState(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [snack, setSnack] = useState(null); // { severity, message }
 
   const projectsQuery = useQuery({
@@ -224,6 +287,14 @@ export default function ProjectsOverviewPage() {
             )}
             <Button
               size="small"
+              variant="outlined"
+              startIcon={<UploadFileIcon />}
+              onClick={() => setImportOpen(true)}
+            >
+              Import
+            </Button>
+            <Button
+              size="small"
               variant="contained"
               startIcon={<SyncIcon />}
               disabled={pullMutation.isPending}
@@ -265,6 +336,17 @@ export default function ProjectsOverviewPage() {
       )}
 
       <ProjectDrawer project={selected} onClose={() => setSelected(null)} />
+
+      <ImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Import projects from Excel / PDF"
+        entity="company projects (portfolio records)"
+        fields={PROJECT_IMPORT_FIELDS}
+        buildPayload={buildProjectImportPayload}
+        createFn={(payload) => projectsApi.create(payload)}
+        onDone={() => qc.invalidateQueries({ queryKey: ['projects-overview'] })}
+      />
 
       <Snackbar
         open={Boolean(snack)}

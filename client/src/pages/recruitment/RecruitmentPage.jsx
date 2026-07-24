@@ -27,6 +27,7 @@ import {
   Snackbar,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import WorkOutlineIcon from '@mui/icons-material/WorkOutline';
@@ -34,6 +35,7 @@ import GroupsIcon from '@mui/icons-material/Groups';
 import LocalOfferIcon from '@mui/icons-material/LocalOffer';
 import TimelapseIcon from '@mui/icons-material/Timelapse';
 import PageHeader from '../../components/ui/PageHeader.jsx';
+import ImportDialog from '../../components/import/ImportDialog.jsx';
 import { getErrorMessage } from '../../lib/axios.js';
 import { hrmsErrorMessage } from '../../api/integrations.api.js';
 import { getSocket, connectSocket } from '../../lib/socket.js';
@@ -295,12 +297,44 @@ function PositionDialog({ open, onClose, onSave, saving, error, record, users })
   );
 }
 
+// --- File import (Excel/PDF): positions ---------------------------------------
+const POSITION_IMPORT_FIELDS = [
+  { key: 'title', label: 'Title', required: true },
+  { key: 'department', label: 'Department', required: true },
+  { key: 'openings', label: 'Openings', hint: 'whole number ≥ 0' },
+  { key: 'priority', label: 'Priority', hint: 'low / medium / high / urgent' },
+  { key: 'status', label: 'Status', hint: 'open / on_hold / closed / filled' },
+  { key: 'openSince', label: 'Open since', hint: 'YYYY-MM-DD' },
+  { key: 'targetHireDate', label: 'Target hire date', hint: 'YYYY-MM-DD' },
+  { key: 'description', label: 'Description' },
+];
+
+function buildPositionImportPayload(m) {
+  if (!m.title) throw new Error('Title is required');
+  if (!m.department) throw new Error('Department is required');
+  const payload = { title: m.title, department: m.department };
+  if (m.openings) {
+    const openings = Number(String(m.openings).replace(/[^0-9.-]/g, ''));
+    if (!Number.isInteger(openings) || openings < 0) throw new Error('Openings must be a whole number ≥ 0');
+    payload.openings = openings;
+  }
+  const priority = (m.priority || '').toLowerCase().trim();
+  if (POSITION_PRIORITIES.includes(priority)) payload.priority = priority;
+  const status = (m.status || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
+  if (POSITION_STATUSES.includes(status)) payload.status = status;
+  if (m.openSince) payload.openSince = m.openSince;
+  if (m.targetHireDate) payload.targetHireDate = m.targetHireDate;
+  if (m.description) payload.description = m.description;
+  return payload;
+}
+
 // --- Positions panel ----------------------------------------------------------
 function PositionsPanel({ perms, users, notify }) {
   const qc = useQueryClient();
   const [status, setStatus] = useState('');
   const [department, setDepartment] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [saveError, setSaveError] = useState('');
 
@@ -367,6 +401,11 @@ function PositionsPanel({ perms, users, notify }) {
         <TextField size="small" label="Department" placeholder="Filter by department" value={department} onChange={(e) => setDepartment(e.target.value)} sx={{ minWidth: 200 }} />
         {total != null && <Chip label={`${total} total`} size="small" />}
         <Box sx={{ flex: 1 }} />
+        {perms.create && (
+          <Button variant="outlined" startIcon={<UploadFileIcon />} onClick={() => setImportOpen(true)}>
+            Import
+          </Button>
+        )}
         {perms.create && (
           <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
             New position
@@ -442,6 +481,17 @@ function PositionsPanel({ perms, users, notify }) {
         error={saveError}
         record={editing}
         users={users}
+      />
+
+      <ImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Import positions from Excel / PDF"
+        entity="job positions (open hiring requisitions)"
+        fields={POSITION_IMPORT_FIELDS}
+        buildPayload={buildPositionImportPayload}
+        createFn={(payload) => positionsApi.create(payload)}
+        onDone={invalidate}
       />
     </Box>
   );
@@ -552,12 +602,54 @@ function CandidateDialog({ open, onClose, onSave, saving, error, record, positio
   );
 }
 
+// --- File import (Excel/PDF): candidates --------------------------------------
+const CANDIDATE_IMPORT_FIELDS = [
+  { key: 'name', label: 'Name', required: true },
+  { key: 'position', label: 'Position', required: true, hint: 'existing position title' },
+  { key: 'email', label: 'Email' },
+  { key: 'phone', label: 'Phone' },
+  { key: 'stage', label: 'Stage', hint: 'applied / screening / interview / offer / hired / rejected / dropped' },
+  { key: 'source', label: 'Source', hint: 'referral / linkedin…' },
+  { key: 'appliedAt', label: 'Applied date', hint: 'YYYY-MM-DD' },
+  { key: 'expectedJoining', label: 'Expected joining', hint: 'YYYY-MM-DD' },
+  { key: 'rating', label: 'Rating', hint: 'number 0-5' },
+  { key: 'notes', label: 'Notes' },
+];
+
+// `position` in the create schema is an ObjectId — resolve the file's position
+// title (or a raw id) against the already-loaded position pool.
+function buildCandidateImportPayload(m, positions) {
+  if (!m.name) throw new Error('Name is required');
+  if (!m.position) throw new Error('Position is required');
+  const wanted = m.position.toLowerCase();
+  const match = (positions || []).find(
+    (p) => p._id === m.position || (p.title || '').toLowerCase() === wanted
+  );
+  if (!match) throw new Error(`Position "${m.position}" not found — create the position first`);
+  const payload = { name: m.name, position: match._id };
+  if (m.email) payload.email = m.email;
+  if (m.phone) payload.phone = m.phone;
+  const stage = (m.stage || '').toLowerCase().trim();
+  if (CANDIDATE_STAGES.includes(stage)) payload.stage = stage;
+  if (m.source) payload.source = m.source;
+  if (m.appliedAt) payload.appliedAt = m.appliedAt;
+  if (m.expectedJoining) payload.expectedJoining = m.expectedJoining;
+  if (m.rating) {
+    const rating = Number(String(m.rating).replace(/[^0-9.-]/g, ''));
+    if (!Number.isFinite(rating) || rating < 0 || rating > 5) throw new Error('Rating must be a number between 0 and 5');
+    payload.rating = rating;
+  }
+  if (m.notes) payload.notes = m.notes;
+  return payload;
+}
+
 // --- Candidates panel ---------------------------------------------------------
 function CandidatesPanel({ perms, positions, notify }) {
   const qc = useQueryClient();
   const [position, setPosition] = useState('');
   const [stage, setStage] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [saveError, setSaveError] = useState('');
 
@@ -639,6 +731,11 @@ function CandidatesPanel({ perms, positions, notify }) {
         </TextField>
         {total != null && <Chip label={`${total} total`} size="small" />}
         <Box sx={{ flex: 1 }} />
+        {perms.create && (
+          <Button variant="outlined" startIcon={<UploadFileIcon />} onClick={() => setImportOpen(true)}>
+            Import
+          </Button>
+        )}
         {perms.create && (
           <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
             New candidate
@@ -733,6 +830,17 @@ function CandidatesPanel({ perms, positions, notify }) {
         error={saveError}
         record={editing}
         positions={positions}
+      />
+
+      <ImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Import candidates from Excel / PDF"
+        entity="job candidates (hiring pipeline applicants)"
+        fields={CANDIDATE_IMPORT_FIELDS}
+        buildPayload={(m) => buildCandidateImportPayload(m, positions)}
+        createFn={(payload) => candidatesApi.create(payload)}
+        onDone={invalidate}
       />
     </Box>
   );

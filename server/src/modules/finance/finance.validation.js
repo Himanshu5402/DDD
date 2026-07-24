@@ -51,6 +51,16 @@ const partySchema = z.object({
   contact: objectId.nullable().optional(),
 });
 
+// Free-form "Add field" rows (mirrors Product.specs) — name/value string pairs.
+const extraFieldsSchema = z
+  .array(
+    z.object({
+      name: z.string().trim().min(1).max(120),
+      value: z.string().trim().max(2000).optional().default(''),
+    })
+  )
+  .max(100);
+
 const linkedToSchema = z.object({
   model: z.enum(LINKABLE_MODELS).optional(),
   id: objectId.nullable().optional(),
@@ -71,6 +81,7 @@ export const createTransactionSchema = z.object({
   isRecurring: z.boolean().optional(),
   recurringNote: z.string().max(1000).optional(),
   tags: z.array(z.string().trim()).optional(),
+  extraFields: extraFieldsSchema.optional(),
   customFields: z.record(z.any()).optional(),
 });
 
@@ -89,6 +100,7 @@ export const updateTransactionSchema = z.object({
   isRecurring: z.boolean().optional(),
   recurringNote: z.string().max(1000).optional(),
   tags: z.array(z.string().trim()).optional(),
+  extraFields: extraFieldsSchema.optional(),
   customFields: z.record(z.any()).optional(),
 });
 
@@ -111,6 +123,7 @@ export const createBudgetSchema = z.object({
   startDate: z.coerce.date().optional(),
   endDate: z.coerce.date().optional(),
   notes: z.string().max(2000).optional(),
+  extraFields: extraFieldsSchema.optional(),
 });
 
 export const updateBudgetSchema = z.object({
@@ -121,6 +134,7 @@ export const updateBudgetSchema = z.object({
   startDate: z.coerce.date().nullable().optional(),
   endDate: z.coerce.date().nullable().optional(),
   notes: z.string().max(2000).optional(),
+  extraFields: extraFieldsSchema.optional(),
 });
 
 // --- Summary / AI insights ---

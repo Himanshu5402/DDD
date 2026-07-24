@@ -4,15 +4,38 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Box, Typography, Button, CircularProgress, Alert, Chip, TextField, InputAdornment, Stack } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import SearchIcon from '@mui/icons-material/Search';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 import PageHeader from '../../components/ui/PageHeader.jsx';
 import TaskCard from '../../components/tasks/TaskCard.jsx';
 import TaskDialog from '../../components/tasks/TaskDialog.jsx';
 import TaskDetailDrawer from '../../components/tasks/TaskDetailDrawer.jsx';
+import ImportDialog from '../../components/import/ImportDialog.jsx';
 import { STATUS_ACCENT } from '../../components/tasks/taskMeta.js';
-import { tasksApi, TASK_STATUS_LABELS } from '../../api/tasks.api.js';
+import { tasksApi, TASK_STATUS_LABELS, TASK_PRIORITIES } from '../../api/tasks.api.js';
 import api, { getErrorMessage } from '../../lib/axios.js';
 import { getSocket, connectSocket } from '../../lib/socket.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
+
+/* ------------------------- File import (Excel/PDF) ------------------------ */
+
+const TASK_IMPORT_FIELDS = [
+  { key: 'title', label: 'Title', required: true },
+  { key: 'description', label: 'Description' },
+  { key: 'priority', label: 'Priority', hint: 'low / medium / high / urgent' },
+  { key: 'startDate', label: 'Start date', hint: 'YYYY-MM-DD' },
+  { key: 'dueDate', label: 'Due date', hint: 'YYYY-MM-DD' },
+];
+
+function buildTaskImportPayload(m) {
+  if (!m.title) throw new Error('Title is required');
+  const payload = { title: m.title };
+  if (m.description) payload.description = m.description;
+  const priority = (m.priority || '').toLowerCase();
+  if (TASK_PRIORITIES.includes(priority)) payload.priority = priority;
+  if (m.startDate) payload.startDate = m.startDate;
+  if (m.dueDate) payload.dueDate = m.dueDate;
+  return payload;
+}
 
 export default function TasksBoardPage() {
   const qc = useQueryClient();
@@ -39,6 +62,7 @@ export default function TasksBoardPage() {
   const [mineOnly, setMineOnly] = useState(false);
   const [companyFilter, setCompanyFilter] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [saveError, setSaveError] = useState('');
   const [detailId, setDetailId] = useState(null);
@@ -125,6 +149,11 @@ export default function TasksBoardPage() {
               onChange={(e) => setSearch(e.target.value)}
               InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
             />
+            {canCreate && (
+              <Button variant="outlined" startIcon={<UploadFileIcon />} onClick={() => setImportOpen(true)}>
+                Import
+              </Button>
+            )}
             {canCreate && <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>New task</Button>}
           </Box>
         }
@@ -249,6 +278,17 @@ export default function TasksBoardPage() {
         onClose={() => setDetailId(null)}
         onEdit={(task) => { setDetailId(null); openEdit(task); }}
         onChanged={invalidateBoard}
+      />
+
+      <ImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Import tasks from Excel / PDF"
+        entity="tasks (to-dos with title, priority and due dates)"
+        fields={TASK_IMPORT_FIELDS}
+        buildPayload={buildTaskImportPayload}
+        createFn={(payload) => tasksApi.create(payload)}
+        onDone={invalidateBoard}
       />
     </Box>
   );

@@ -36,11 +36,13 @@
     "morgan": "^1.10.0",
     "multer": "^2.0.0",
     "nodemailer": "^6.9.14",
+    "pdf-parse": "^2.4.5",
     "socket.io": "^4.7.5",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
     "uuid": "^10.0.0",
     "winston": "^3.14.2",
+    "xlsx": "^0.18.5",
     "zod": "^3.23.8"
   },
   "optionalDependencies": {
