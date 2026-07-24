@@ -7,7 +7,7 @@ import ApiError from '../../utils/ApiError.js';
 import { parsePagination } from '../../utils/pagination.js';
 import { validateValues as validateCustomFields } from '../customFields/customFields.service.js';
 import { pepsiPut, pepsiDelete } from '../../services/integrations/pepsi.client.js';
-import { upsertPepsiCustomers, upsertPepsiLeads } from '../integrations/pepsi.service.js';
+import { upsertPepsiCustomers, upsertPepsiLeads, rupeesToLakh } from '../integrations/pepsi.service.js';
 
 const ENTITY = 'contact';
 
@@ -49,7 +49,9 @@ async function forwardPepsiContactUpdate(contact, data) {
     const body = {};
     if (data.name !== undefined) body.name = data.name;
     for (const f of ['industry', 'site', 'contractValue']) {
-      if (pepsiCf[f] !== undefined) body[f] = pepsiCf[f];
+      if (pepsiCf[f] === undefined) continue;
+      // Contract value is rupees in DDD, lakhs in the portal.
+      body[f] = f === 'contractValue' ? rupeesToLakh(pepsiCf.contractValue) : pepsiCf[f];
     }
     // Portal status lives in customFields.pepsi.portalStatus; DDD's own
     // status enum doesn't map onto it, so omit unless we know it.
@@ -65,7 +67,9 @@ async function forwardPepsiContactUpdate(contact, data) {
       if (stage) body.stage = stage;
     }
     for (const f of ['value', 'probability', 'owner', 'source', 'closeDate', 'nextAction', 'note', 'customerExternalId']) {
-      if (pepsiCf[f] !== undefined) body[f] = pepsiCf[f];
+      if (pepsiCf[f] === undefined) continue;
+      // Opportunity value is rupees in DDD, lakhs in the portal.
+      body[f] = f === 'value' ? rupeesToLakh(pepsiCf.value) : pepsiCf[f];
     }
     response = await pepsiPut(`/integration/leads/${externalId}`, body);
   } else {

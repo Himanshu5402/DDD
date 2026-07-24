@@ -18,6 +18,7 @@ import env from '../../config/env.js';
 import logger from '../../config/logger.js';
 import User from '../../models/user.model.js';
 import Contact from '../../models/contact.model.js';
+import IntegrationState from '../../models/integrationState.model.js';
 import ErpRawMaterial, { ERP_RAW_MATERIAL_STATUSES } from '../../models/erpRawMaterial.model.js';
 import ErpFinishedGood, {
   ERP_FG_QC_STATUSES,
@@ -113,6 +114,30 @@ export async function removeErpContact(payload) {
 /* =========================== Raw materials ============================ */
 
 /** Full ERP raw-material doc → ErpRawMaterial upsert on externalId. */
+/** The $set doc for a raw material — shared by the single and bulk upserts. */
+function rawMaterialSet(doc) {
+  return {
+    barcode: doc.barcode || '',
+    materialType: doc.materialType || '',
+    prefix: doc.prefix || '',
+    supplierExternalId: asId(doc.supplier),
+    supplierName: doc.supplierName || '',
+    supplierContact: doc.supplierContact || '',
+    supplierAddress: doc.supplierAddress || '',
+    supplierSerial: doc.supplierSerial || '',
+    purchaseDate: toDate(doc.purchaseDate),
+    model: doc.model || '',
+    specification: doc.specification || '',
+    warranty: doc.warranty || '',
+    remarks: doc.remarks || '',
+    documentUrl: doc.documentUrl || '',
+    status: inEnum(ERP_RAW_MATERIAL_STATUSES, doc.status, 'in_stock'),
+    consumedInFgExternalId: asId(doc.consumedInFG),
+    source: 'erp',
+    lastSyncedAt: new Date(),
+  };
+}
+
 export async function upsertRawMaterial(doc) {
   const externalId = asId(doc?._id ?? doc?.id);
   if (!externalId) return null;
@@ -121,32 +146,36 @@ export async function upsertRawMaterial(doc) {
 
   await ErpRawMaterial.updateOne(
     { externalId },
-    {
-      $set: {
-        barcode: doc.barcode || '',
-        materialType: doc.materialType || '',
-        prefix: doc.prefix || '',
-        supplierExternalId: asId(doc.supplier),
-        supplierName: doc.supplierName || '',
-        supplierContact: doc.supplierContact || '',
-        supplierAddress: doc.supplierAddress || '',
-        supplierSerial: doc.supplierSerial || '',
-        purchaseDate: toDate(doc.purchaseDate),
-        model: doc.model || '',
-        specification: doc.specification || '',
-        warranty: doc.warranty || '',
-        remarks: doc.remarks || '',
-        documentUrl: doc.documentUrl || '',
-        status: inEnum(ERP_RAW_MATERIAL_STATUSES, doc.status, 'in_stock'),
-        consumedInFgExternalId: asId(doc.consumedInFG),
-        source: 'erp',
-        lastSyncedAt: new Date(),
-      },
-      $setOnInsert: { createdBy },
-    },
+    { $set: rawMaterialSet(doc), $setOnInsert: { createdBy } },
     { upsert: true }
   );
   return { externalId };
+}
+
+/**
+ * Bulk-upsert every raw material in ONE round-trip (bootstrap sync). Raw
+ * materials are the largest list by far (hundreds–thousands); a per-doc
+ * updateOne meant that many sequential Atlas round-trips. Returns the number
+ * of raw materials processed.
+ */
+async function bulkUpsertRawMaterials(docs = []) {
+  const createdBy = await getSystemUserId();
+  if (!createdBy) return 0;
+  const ops = [];
+  for (const doc of docs) {
+    const externalId = asId(doc?._id ?? doc?.id);
+    if (!externalId) continue;
+    ops.push({
+      updateOne: {
+        filter: { externalId },
+        update: { $set: rawMaterialSet(doc), $setOnInsert: { createdBy } },
+        upsert: true,
+      },
+    });
+  }
+  if (!ops.length) return 0;
+  await ErpRawMaterial.bulkWrite(ops, { ordered: false });
+  return ops.length;
 }
 
 /** erp.rawmaterial.received — one batch event: {items:[full docs]}. */
@@ -531,10 +560,29 @@ export async function handleEvent(event, payload = {}) {
 
 /* =========================== Bootstrap sync =========================== */
 
+// In-memory cache over the durable IntegrationState row ('erp') so the owner
+// console's "last synced" survives server restarts (was in-memory only, which
+// showed "Never synced" after every DDD restart).
 let lastSyncAt = null;
+let lastSyncLoaded = false;
 
-export function getLastSyncAt() {
+async function loadLastSyncAt() {
+  if (!lastSyncLoaded) {
+    const row = await IntegrationState.findOne({ key: 'erp' }).lean();
+    lastSyncAt = row?.lastSyncAt ?? null;
+    lastSyncLoaded = true;
+  }
   return lastSyncAt;
+}
+
+async function saveLastSyncAt(when) {
+  lastSyncAt = when;
+  lastSyncLoaded = true;
+  await IntegrationState.updateOne({ key: 'erp' }, { $set: { lastSyncAt: when } }, { upsert: true });
+}
+
+export async function getLastSyncAt() {
+  return loadLastSyncAt();
 }
 
 /**
@@ -557,26 +605,88 @@ export async function runBootstrapSync() {
     assets: 0,
     users: 0,
   };
-  const count = (key, value) => {
-    if (value) counts[key] += 1;
+  const countAll = (key, results) => {
+    for (const r of results) if (r) counts[key] += 1;
   };
 
-  for (const doc of snap.suppliers || []) count('suppliers', await upsertSupplier(doc));
-  for (const doc of snap.customers || []) count('customers', await upsertCustomer(doc));
-  for (const doc of snap.boms || []) count('boms', await upsertBom(doc));
-  // Raw-material statuses in the snapshot already reflect consumption — plain
-  // upserts converge without replaying the build cascade.
-  for (const doc of snap.rawMaterials || []) count('rawMaterials', await upsertRawMaterial(doc));
-  for (const doc of snap.finishedGoods || []) count('finishedGoods', await upsertFinishedGood(doc));
-  for (const doc of snap.salesOrders || []) count('salesOrders', await upsertSalesOrder(doc));
-  for (const doc of snap.assets || []) count('assets', await upsertErpAsset(doc));
-  for (const doc of snap.users || []) count('users', await upsertErpUser(doc));
+  // Bounded-concurrency parallel map — items within a type are independent, so
+  // batching them (was ~220 sequential Atlas round-trips, dominated by the
+  // 200-item raw-materials list) cuts wall-time by an order of magnitude. The
+  // cap keeps the connection pool from being flooded.
+  const CONCURRENCY = 20;
+  const mapLimit = async (list, fn) => {
+    const items = list || [];
+    const results = new Array(items.length);
+    let i = 0;
+    const worker = async () => {
+      while (i < items.length) {
+        const idx = i++;
+        results[idx] = await fn(items[idx]);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, worker));
+    return results;
+  };
 
-  lastSyncAt = new Date();
+  // Masters (suppliers/customers/boms) — independent of each other, concurrent.
+  const [supRes, custRes, bomRes] = await Promise.all([
+    mapLimit(snap.suppliers, (d) => upsertSupplier(d)),
+    mapLimit(snap.customers, (d) => upsertCustomer(d)),
+    mapLimit(snap.boms, (d) => upsertBom(d)),
+  ]);
+  countAll('suppliers', supRes);
+  countAll('customers', custRes);
+  countAll('boms', bomRes);
+
+  // Raw materials BEFORE finished goods (FG references RM). Raw-material
+  // statuses in the snapshot already reflect consumption — plain upserts
+  // converge without replaying the build cascade. Bulk-written in one call.
+  counts.rawMaterials = await bulkUpsertRawMaterials(snap.rawMaterials);
+  countAll('finishedGoods', await mapLimit(snap.finishedGoods, (d) => upsertFinishedGood(d)));
+
+  // Sales orders, assets, users — independent, concurrent.
+  const [soRes, assetRes, userRes] = await Promise.all([
+    mapLimit(snap.salesOrders, (d) => upsertSalesOrder(d)),
+    mapLimit(snap.assets, (d) => upsertErpAsset(d)),
+    mapLimit(snap.users, (d) => upsertErpUser(d)),
+  ]);
+  countAll('salesOrders', soRes);
+  countAll('assets', assetRes);
+  countAll('users', userRes);
+
+  // Reconcile deletions. The bootstrap lists are COMPLETE snapshots, so a
+  // mirror row whose externalId is absent from the snapshot was deleted in the
+  // ERP — drop it (matches the event-driven removes). Without this pass, ERP
+  // deletions never disappear from DDD and stale rows accumulate. rawMaterials
+  // is capped at 5000 in the ERP bootstrap, so it is reconciled ONLY when the
+  // list is below the cap (a full page); a truncated list would wrongly delete
+  // the tail.
+  const RM_CAP = 5000;
+  const liveIds = (list) => (list || []).map((d) => asId(d?._id ?? d?.id)).filter(Boolean);
+  const removed = {};
+  const reconcile = async (key, model, baseFilter, list, skip = false) => {
+    if (skip || !Array.isArray(list)) { removed[key] = 0; return; }
+    const res = await model.deleteMany({ ...baseFilter, externalId: { $nin: liveIds(list) } });
+    removed[key] = res.deletedCount;
+  };
+
+  await reconcile('suppliers', Contact, { sourceSystem: 'erp', type: 'supplier' }, snap.suppliers);
+  await reconcile('customers', Contact, { sourceSystem: 'erp', type: 'customer' }, snap.customers);
+  await reconcile('boms', ErpBom, { source: 'erp' }, snap.boms);
+  await reconcile('rawMaterials', ErpRawMaterial, { source: 'erp' }, snap.rawMaterials,
+    (snap.rawMaterials || []).length >= RM_CAP);
+  await reconcile('finishedGoods', ErpFinishedGood, { source: 'erp' }, snap.finishedGoods);
+  await reconcile('salesOrders', ErpSalesOrder, { source: 'erp' }, snap.salesOrders);
+  await reconcile('assets', ErpAsset, { source: 'erp' }, snap.assets);
+  await reconcile('users', ErpUser, { source: 'erp' }, snap.users);
+
+  await saveLastSyncAt(new Date());
   broadcast('erp:changed', { type: 'erp:bootstrap-sync', at: Date.now() });
 
-  logger.info(`ERP bootstrap sync complete: ${JSON.stringify(counts)}`);
-  return { status: 'synced', lastSyncAt, ...counts };
+  logger.info(
+    `ERP bootstrap sync complete: ${JSON.stringify(counts)} removed=${JSON.stringify(removed)}`
+  );
+  return { status: 'synced', lastSyncAt, ...counts, removed };
 }
 
 /* ============================== Status ================================ */
@@ -608,7 +718,7 @@ export async function getStatus() {
   return {
     enabled: env.ERP_SYNC_ENABLED && erpClient.isErpConfigured(),
     erpReachable,
-    lastSyncAt,
+    lastSyncAt: await loadLastSyncAt(),
     counts: {
       suppliers,
       customers,

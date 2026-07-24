@@ -424,6 +424,6 @@ export async function getOverview() {
     contacts: { suppliers, customers },
     users,
     erpReachable,
-    lastSyncAt: sync.getLastSyncAt(),
+    lastSyncAt: await sync.getLastSyncAt(),
   };
 }

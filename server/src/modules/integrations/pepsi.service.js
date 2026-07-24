@@ -37,6 +37,22 @@ function toDate(value) {
   return Number.isNaN(d.getTime()) ? undefined : d;
 }
 
+// PEPSI stores monetary VALUES (project contract value, opportunity/lead value)
+// in LAKHS — the unit users type in the portal (264 means ₹2.64Cr). DDD's
+// canonical money unit is rupees (like Finance and manual projects), so value
+// fields are scaled up on the way IN and back down on write-through (see
+// projects/contacts services). Budget lines and expenses already arrive in
+// rupees and are left untouched.
+export const LAKH = 100000;
+/** PEPSI value (lakhs) → DDD rupees, preserving null/undefined. */
+export function lakhToRupees(v) {
+  return v == null ? v : Number(v) * LAKH;
+}
+/** DDD rupees → PEPSI value (lakhs), preserving null/undefined. */
+export function rupeesToLakh(v) {
+  return v == null ? v : Number(v) / LAKH;
+}
+
 /** Map one PEPSI project payload → Project document fields. */
 export function mapPepsiProject(p) {
   const stageIndex = p.stageIndex ?? p.currentStage?.index;
@@ -55,7 +71,8 @@ export function mapPepsiProject(p) {
     description: p.description || '',
     status: progress >= 100 ? 'completed' : 'active',
     workType: p.workType || p.type || '',
-    contractValue: p.contractValue != null ? Number(p.contractValue) : undefined,
+    // Lakhs → rupees (portal stores value in lakhs; DDD in rupees).
+    contractValue: p.contractValue != null ? lakhToRupees(p.contractValue) : undefined,
     health: normalizeHealth(p.health),
     spi: p.spi != null ? Number(p.spi) : undefined,
     cpi: p.cpi != null ? Number(p.cpi) : undefined,
@@ -91,7 +108,7 @@ export function mapPepsiProject(p) {
       externalId: q.externalId || q.id || '',
       title: q.title || q.name,
       stage: q.stage || '',
-      estValue: q.estValue != null ? Number(q.estValue) : undefined,
+      estValue: q.estValue != null ? lakhToRupees(q.estValue) : undefined,
       probability: q.probability != null ? Number(q.probability) : undefined,
       closeDate: toDate(q.closeDate),
       owner: q.owner || '',
@@ -227,7 +244,7 @@ export async function upsertPepsiCustomers(customers = [], actorId) {
     const pepsi = {
       industry: c.industry || '',
       site: c.site || '',
-      contractValue: c.contractValue != null ? Number(c.contractValue) : null,
+      contractValue: c.contractValue != null ? lakhToRupees(c.contractValue) : null,
       portalStatus: c.status || '',
     };
 
@@ -279,7 +296,7 @@ export async function upsertPepsiLeads(leads = [], actorId) {
 
     const pepsi = {
       stage: l.stage || '',
-      value: l.value != null ? Number(l.value) : null,
+      value: l.value != null ? lakhToRupees(l.value) : null,
       probability: l.probability != null ? Number(l.probability) : null,
       owner: l.owner || '',
       source: l.source || '',

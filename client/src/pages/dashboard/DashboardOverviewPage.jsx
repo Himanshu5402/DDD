@@ -26,7 +26,20 @@ import {
 import { motion } from "framer-motion";
 import ReportProblemIcon from "@mui/icons-material/ReportProblemOutlined";
 import Masonry from "@mui/lab/Masonry";
+import {
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  Tooltip as ChartTooltip,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+} from "recharts";
 import PageHeader from "../../components/ui/PageHeader.jsx";
+import { financeApi } from "../../api/finance.api.js";
 import {
   StatGridSkeleton,
   ContentCardSkeleton,
@@ -95,6 +108,320 @@ function formatDate(d) {
         year: "numeric",
       })
     : "—";
+}
+
+/** '2026-07' → 'Jul' for chart ticks. */
+function shortMonth(ym) {
+  const [y, m] = String(ym).split("-").map(Number);
+  if (!y || !m) return ym;
+  return new Date(y, m - 1, 1).toLocaleDateString("en-IN", { month: "short" });
+}
+
+// Validated data-viz palette (dataviz skill — passes CVD + all-pairs in light
+// mode with direct value labels for contrast relief). Categorical hues are
+// assigned in fixed order; income/expense use semantic green/red.
+const VIZ = {
+  blue: "#2a78d6",
+  orange: "#eb6834",
+  aqua: "#1baf7a",
+  yellow: "#eda100",
+  violet: "#4a3aa7",
+  magenta: "#e87ba4",
+  income: "#1baf7a",
+  expense: "#e34948",
+  grid: "#EEF0F2",
+  axis: "#94A3B8",
+};
+
+const MotionSurface = motion(Paper);
+
+/** Shared surface styling for the chart cards. */
+const chartSurfaceSx = {
+  p: 3,
+  border: "1px solid",
+  borderColor: "divider",
+  borderRadius: 3,
+  height: "100%",
+  background:
+    "linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(249,250,251,0.9) 100%)",
+  backdropFilter: "blur(8px)",
+  transition: "all 0.2s ease",
+  "&:hover": {
+    boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
+    borderColor: "primary.light",
+  },
+};
+
+/** Donut tooltip — value + share, in ink tokens (never the series color). */
+function DonutTooltip({ active, payload, total, money }) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0];
+  const pct = total > 0 ? Math.round((p.value / total) * 100) : 0;
+  return (
+    <Box
+      sx={{
+        bgcolor: "#fff",
+        border: "1px solid",
+        borderColor: "divider",
+        borderRadius: 1.5,
+        px: 1.5,
+        py: 0.75,
+        boxShadow: "0 4px 16px rgba(0,0,0,0.1)",
+      }}
+    >
+      <Typography variant="caption" sx={{ fontWeight: 700 }}>
+        {p.name}
+      </Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+        {money ? formatINR(p.value) : p.value} · {pct}%
+      </Typography>
+    </Box>
+  );
+}
+
+/**
+ * Donut chart card. `data` = [{ name, value, color }]. `money` formats values
+ * as INR. `centerLabel`/`centerValue`/`centerColor` fill the hole. Legend below
+ * carries direct value labels (identity is never color-alone).
+ */
+function DonutCard({ label, data, money = false, centerLabel, centerValue, centerColor }) {
+  const shown = (data || []).filter((d) => (d.value || 0) > 0);
+  const total = shown.reduce((s, d) => s + (d.value || 0), 0);
+
+  return (
+    <MotionSurface
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
+      sx={chartSurfaceSx}
+    >
+      <Typography variant="overline" sx={{ color: "text.secondary", fontSize: 11, display: "block", mb: 1 }}>
+        {label}
+      </Typography>
+
+      {total === 0 ? (
+        <Box sx={{ display: "grid", placeItems: "center", height: 200 }}>
+          <Typography variant="body2" color="text.secondary">
+            No data yet.
+          </Typography>
+        </Box>
+      ) : (
+        <>
+          <Box sx={{ position: "relative", height: 200 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={shown}
+                  dataKey="value"
+                  nameKey="name"
+                  innerRadius="62%"
+                  outerRadius="88%"
+                  paddingAngle={2}
+                  cornerRadius={4}
+                  stroke="none"
+                  startAngle={90}
+                  endAngle={-270}
+                >
+                  {shown.map((d) => (
+                    <Cell key={d.name} fill={d.color} />
+                  ))}
+                </Pie>
+                <ChartTooltip content={<DonutTooltip total={total} money={money} />} />
+              </PieChart>
+            </ResponsiveContainer>
+            {/* Center hole label */}
+            <Box
+              sx={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                pointerEvents: "none",
+              }}
+            >
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                {centerLabel}
+              </Typography>
+              <Typography sx={{ fontWeight: 800, fontSize: 22, lineHeight: 1.1, color: centerColor || "text.primary" }}>
+                {centerValue}
+              </Typography>
+            </Box>
+          </Box>
+
+          {/* Legend with direct value labels */}
+          <Box sx={{ mt: 1.5, display: "flex", flexDirection: "column", gap: 0.75 }}>
+            {shown.map((d) => (
+              <Box key={d.name} sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <Box sx={{ width: 10, height: 10, borderRadius: "3px", bgcolor: d.color, flexShrink: 0 }} />
+                <Typography variant="body2" sx={{ flex: 1 }} noWrap>
+                  {d.name}
+                </Typography>
+                <Typography variant="body2" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                  {money ? formatINR(d.value) : d.value}
+                </Typography>
+              </Box>
+            ))}
+          </Box>
+        </>
+      )}
+    </MotionSurface>
+  );
+}
+
+/** Finance 12-month income-vs-expense bar chart (fetches the finance summary). */
+function FinanceTrendCard({ enabled }) {
+  const { data } = useQuery({
+    queryKey: ["finance", "summary"],
+    queryFn: () => financeApi.summary(),
+    enabled,
+    staleTime: 60_000,
+  });
+
+  const monthly = (data?.monthly || []).map((m) => ({ ...m, label: shortMonth(m.month) }));
+
+  return (
+    <MotionSurface
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
+      sx={chartSurfaceSx}
+    >
+      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
+        <Typography variant="overline" sx={{ color: "text.secondary", fontSize: 11 }}>
+          Income vs expense — last 12 months
+        </Typography>
+        <Box sx={{ display: "flex", gap: 1.5 }}>
+          {[
+            { k: "Income", c: VIZ.income },
+            { k: "Expense", c: VIZ.expense },
+          ].map((x) => (
+            <Box key={x.k} sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+              <Box sx={{ width: 9, height: 9, borderRadius: "50%", bgcolor: x.c }} />
+              <Typography variant="caption" color="text.secondary">
+                {x.k}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
+      </Box>
+
+      {monthly.length === 0 ? (
+        <Box sx={{ display: "grid", placeItems: "center", height: 260 }}>
+          <Typography variant="body2" color="text.secondary">
+            No transactions yet.
+          </Typography>
+        </Box>
+      ) : (
+        <Box sx={{ height: 260 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={monthly} barGap={2} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+              <CartesianGrid vertical={false} stroke={VIZ.grid} />
+              <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: VIZ.axis }} />
+              <YAxis width={54} tickLine={false} axisLine={false} tickFormatter={compactINR} tick={{ fontSize: 12, fill: VIZ.axis }} />
+              <ChartTooltip
+                cursor={{ fill: "rgba(0,0,0,0.04)" }}
+                formatter={(v, n) => [formatINR(v), n]}
+                contentStyle={{ borderRadius: 8, border: `1px solid ${VIZ.grid}`, fontSize: 13 }}
+              />
+              <Bar dataKey="income" name="Income" fill={VIZ.income} radius={[4, 4, 0, 0]} maxBarSize={18} />
+              <Bar dataKey="expense" name="Expense" fill={VIZ.expense} radius={[4, 4, 0, 0]} maxBarSize={18} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Box>
+      )}
+    </MotionSurface>
+  );
+}
+
+/** Assembles the donut + trend charts from whatever sections the user can see. */
+function DashboardCharts({ o }) {
+  const donuts = [];
+
+  if (o.finance) {
+    donuts.push(
+      <DonutCard
+        key="finance"
+        label="This month — income vs expense"
+        money
+        centerLabel="Net"
+        centerValue={compactINR(o.finance.monthNet)}
+        centerColor={o.finance.monthNet >= 0 ? VIZ.income : VIZ.expense}
+        data={[
+          { name: "Income", value: o.finance.monthIncome, color: VIZ.income },
+          { name: "Expense", value: o.finance.monthExpense, color: VIZ.expense },
+        ]}
+      />,
+    );
+  }
+
+  if (o.employees) {
+    const present = o.employees.presentToday || 0;
+    const onLeave = o.employees.onLeaveToday ?? o.leave?.onLeaveToday ?? 0;
+    const head = o.employees.headcount ?? present + onLeave;
+    const away = Math.max(0, head - present - onLeave);
+    donuts.push(
+      <DonutCard
+        key="workforce"
+        label="Workforce today"
+        centerLabel="Headcount"
+        centerValue={head}
+        data={[
+          { name: "Present", value: present, color: VIZ.aqua },
+          { name: "On leave", value: onLeave, color: VIZ.orange },
+          { name: "Away", value: away, color: VIZ.blue },
+        ]}
+      />,
+    );
+  }
+
+  if (o.erp) {
+    donuts.push(
+      <DonutCard
+        key="erp"
+        label="ERP stock & pipeline"
+        centerLabel="In stock"
+        centerValue={(o.erp.rawMaterialsInStock || 0) + (o.erp.finishedGoodsInStock || 0)}
+        data={[
+          { name: "Raw materials", value: o.erp.rawMaterialsInStock, color: VIZ.blue },
+          { name: "Finished goods", value: o.erp.finishedGoodsInStock, color: VIZ.aqua },
+          { name: "Pending QC", value: o.erp.pendingQC, color: VIZ.yellow },
+        ]}
+      />,
+    );
+  } else if (o.recruitment) {
+    // Fallback third donut when ERP isn't in scope — hiring pipeline.
+    donuts.push(
+      <DonutCard
+        key="recruitment"
+        label="Hiring pipeline"
+        centerLabel="Openings"
+        centerValue={o.recruitment.totalOpenings || 0}
+        data={[
+          { name: "Open positions", value: o.recruitment.openPositions, color: VIZ.violet },
+          { name: "Offers out", value: o.recruitment.offersPending, color: VIZ.magenta },
+        ]}
+      />,
+    );
+  }
+
+  if (donuts.length === 0 && !o.finance) return null;
+
+  return (
+    <Grid container spacing={2.5} sx={{ mb: 4 }}>
+      {donuts.map((d, i) => (
+        <Grid item xs={12} sm={6} md={o.finance ? 4 : 6} key={i}>
+          {d}
+        </Grid>
+      ))}
+      {o.finance && (
+        <Grid item xs={12} md={donuts.length >= 2 ? 12 : 8}>
+          <FinanceTrendCard enabled={Boolean(o.finance)} />
+        </Grid>
+      )}
+    </Grid>
+  );
 }
 
 function StatCard({ label, value, hint, color = "text.primary", badge }) {
@@ -880,13 +1207,18 @@ export default function DashboardOverviewPage() {
           }
         </Alert>
       ) : (
-        <Grid container spacing={2.5} sx={{ mb: 4 }}>
-          {cards.map((card) => (
-            <Grid item xs={6} sm={4} md={3} key={card.label}>
-              <StatCard {...card} />
-            </Grid>
-          ))}
-        </Grid>
+        <>
+          {/* Charts lead the dashboard — donuts + trend, then the KPI grid. */}
+          <DashboardCharts o={o} />
+
+          <Grid container spacing={2.5} sx={{ mb: 4 }}>
+            {cards.map((card) => (
+              <Grid item xs={6} sm={4} md={3} key={card.label}>
+                <StatCard {...card} />
+              </Grid>
+            ))}
+          </Grid>
+        </>
       )}
 
       <MyAssetsSection />

@@ -26,6 +26,27 @@ function initials(name = '') {
   return name.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase();
 }
 
+// Employment status → chip label + colour (HRMS Active→active, Inactive→suspended,
+// Exited→exited). Deleted-in-HRMS users are removed entirely, so never appear here.
+const STATUS_META = {
+  active: { label: 'Active', color: 'success' },
+  on_notice: { label: 'On notice', color: 'warning' },
+  on_leave: { label: 'On leave', color: 'info' },
+  suspended: { label: 'Inactive', color: 'default' },
+  exited: { label: 'Exited', color: 'default' },
+};
+
+function userStatus(u) {
+  // A manually-disabled account (not via an HRMS status) reads as Disabled.
+  if (u.isActive === false && (!u.employmentStatus || u.employmentStatus === 'active')) {
+    return { label: 'Disabled', color: 'default' };
+  }
+  return (
+    STATUS_META[u.employmentStatus] ||
+    { label: u.isActive ? 'Active' : 'Disabled', color: u.isActive ? 'success' : 'default' }
+  );
+}
+
 export default function UsersPage() {
   const qc = useQueryClient();
   const [snack, setSnack] = useState(null); // { severity, message }
@@ -114,7 +135,6 @@ export default function UsersPage() {
                 <TableCell>User</TableCell>
                 <TableCell>Company</TableCell>
                 <TableCell>Designation</TableCell>
-                <TableCell>Roles</TableCell>
                 <TableCell align="right">Status</TableCell>
               </TableRow>
             </TableHead>
@@ -153,19 +173,11 @@ export default function UsersPage() {
                       </Typography>
                     )}
                   </TableCell>
-                  <TableCell>
-                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                      {(u.roles || []).map((r) => (
-                        <Chip key={r._id} label={r.name} size="small" variant="outlined" />
-                      ))}
-                    </Box>
-                  </TableCell>
                   <TableCell align="right">
-                    <Chip
-                      label={u.isActive ? 'Active' : 'Disabled'}
-                      size="small"
-                      color={u.isActive ? 'success' : 'default'}
-                    />
+                    {(() => {
+                      const s = userStatus(u);
+                      return <Chip label={s.label} size="small" color={s.color} />;
+                    })()}
                   </TableCell>
                 </TableRow>
               ))}

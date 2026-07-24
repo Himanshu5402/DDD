@@ -3,7 +3,7 @@ import ApiError from '../../utils/ApiError.js';
 import { parsePagination } from '../../utils/pagination.js';
 import { validateValues as validateCustomFields } from '../customFields/customFields.service.js';
 import { pepsiPost, pepsiPut, pepsiDelete } from '../../services/integrations/pepsi.client.js';
-import { mapPepsiProject } from '../integrations/pepsi.service.js';
+import { mapPepsiProject, rupeesToLakh } from '../integrations/pepsi.service.js';
 
 const ENTITY = 'project';
 
@@ -37,6 +37,8 @@ function toPepsiWireBody(data) {
     if (data[f] === undefined) continue;
     if (f === 'startDate' || f === 'endDate') body[f] = data[f] ? toYmd(data[f]) : '';
     else if (f === 'health') body.health = PEPSI_HEALTH_REVERSE[data.health] ?? '';
+    // Contract value is rupees in DDD, lakhs in the portal.
+    else if (f === 'contractValue') body.contractValue = rupeesToLakh(data.contractValue);
     else body[f] = data[f];
   }
   return body;
@@ -100,7 +102,9 @@ export async function createProject(data, user) {
     const body = { name: data.name };
     if (data.customerExternalId !== undefined) body.customerExternalId = data.customerExternalId;
     for (const f of ['location', 'workType', 'contractValue', 'pmName', 'statusNote']) {
-      if (data[f] !== undefined) body[f] = data[f];
+      if (data[f] === undefined) continue;
+      // Contract value is rupees in DDD, lakhs in the portal.
+      body[f] = f === 'contractValue' ? rupeesToLakh(data.contractValue) : data[f];
     }
     if (data.startDate !== undefined) body.startDate = data.startDate ? toYmd(data.startDate) : '';
     if (data.endDate !== undefined) body.endDate = data.endDate ? toYmd(data.endDate) : '';

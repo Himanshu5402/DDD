@@ -158,16 +158,17 @@ export async function upsertEmployee(emp) {
   return user;
 }
 
-/** HRMS soft-deleted the employee — deactivate the mirror (never hard-delete). */
-export async function deactivateEmployee(emp) {
+/**
+ * HRMS deleted the employee — remove the DDD mirror row entirely so the
+ * directory matches HRMS (no lingering "Disabled" ghost). Scoped to
+ * source:'hrms' so owner/manually-created accounts are never touched. Note an
+ * HRMS *status* of Exited is NOT a deletion — that arrives via employee.updated
+ * and keeps the row (shown as "Exited"); only a real delete removes it.
+ */
+export async function removeEmployee(emp) {
   if (!emp?.empId) return null;
-  const user = await User.findOne({ hrmsId: emp.empId });
-  if (!user) return null;
-  user.isActive = false;
-  user.employmentStatus = 'exited';
-  user.dateOfExit = user.dateOfExit || new Date();
-  await user.save();
-  return user;
+  const res = await User.deleteOne({ hrmsId: emp.empId, source: 'hrms' });
+  return res.deletedCount > 0 ? { empId: emp.empId, deleted: true } : null;
 }
 
 /* ========================== Attendance upsert ========================= */
@@ -282,29 +283,31 @@ export async function upsertPayroll(p, { expenses } = {}) {
   // Per-employee salary breakup. Only replace when the payload carries rows —
   // an old-shape event without them leaves the stored detail untouched.
   if (Array.isArray(p.rows)) {
-    const entries = [];
-    for (const row of p.rows) {
-      const user = row?.empId ? await findUserByEmpId(row.empId) : null;
-      entries.push({
-        user: user?._id ?? null,
-        empId: row.empId || '',
-        name: row.name || '',
-        department: row.dept || '',
-        designation: row.role || '',
-        joinDate: row.join || '',
-        gross: money(row.gross),
-        basic: money(row.basic),
-        hra: money(row.hra),
-        special: money(row.special),
-        pf: money(row.pf),
-        pt: money(row.pt),
-        tds: money(row.tds),
-        deductions: money(row.ded),
-        net: money(row.net),
-        paid: Boolean(row.paid),
-      });
-    }
-    set.entries = entries;
+    // Resolve every row's DDD user in ONE query (was a findOne per row — a
+    // costly N+1 during bootstrap sync).
+    const empIds = p.rows.map((r) => r?.empId).filter(Boolean);
+    const users = empIds.length
+      ? await User.find({ hrmsId: { $in: empIds } }).select('_id hrmsId').lean()
+      : [];
+    const userByEmp = new Map(users.map((u) => [u.hrmsId, u._id]));
+    set.entries = p.rows.map((row) => ({
+      user: userByEmp.get(row.empId) ?? null,
+      empId: row.empId || '',
+      name: row.name || '',
+      department: row.dept || '',
+      designation: row.role || '',
+      joinDate: row.join || '',
+      gross: money(row.gross),
+      basic: money(row.basic),
+      hra: money(row.hra),
+      special: money(row.special),
+      pf: money(row.pf),
+      pt: money(row.pt),
+      tds: money(row.tds),
+      deductions: money(row.ded),
+      net: money(row.net),
+      paid: Boolean(row.paid),
+    }));
   }
 
   // This month's reimbursement claims (HRMS expense module).
@@ -540,7 +543,7 @@ const EVENT_HANDLERS = {
   'employee.created': [upsertEmployee, 'users:changed', 'employee_analytics:changed'],
   'employee.updated': [upsertEmployee, 'users:changed', 'employee_analytics:changed'],
   'employee.status_changed': [upsertEmployee, 'users:changed', 'employee_analytics:changed'],
-  'employee.deleted': [deactivateEmployee, 'users:changed', 'employee_analytics:changed'],
+  'employee.deleted': [removeEmployee, 'users:changed', 'employee_analytics:changed'],
   'attendance.marked': [upsertAttendance, 'employee_analytics:changed'],
   'leave.created': [upsertLeave, 'leave:changed'],
   'leave.decided': [upsertLeave, 'leave:changed'],
@@ -619,21 +622,28 @@ export async function runBootstrapSync() {
     candidates: 0,
     reports: 0,
   };
-  const count = (key, value) => {
-    if (value) counts[key] += 1;
+  // Items WITHIN each entity type are independent, so each type is processed as
+  // one parallel batch (was ~200 sequential Atlas round-trips → ~8s). Type
+  // ORDER is preserved: employees first (users must exist before attendance/
+  // leaves/payroll resolve them), and openings before candidates (candidates
+  // resolve their position by title).
+  const countAll = (key, results) => {
+    for (const r of results) if (r) counts[key] += 1;
   };
 
   // 1) Employees — two passes so managerId → reportsTo resolves in any order.
-  for (const emp of snap.employees || []) count('employees', await upsertEmployee(emp));
-  for (const emp of snap.employees || []) {
-    if (emp?.managerId) await upsertEmployee(emp);
-  }
+  countAll('employees', await Promise.all((snap.employees || []).map((emp) => upsertEmployee(emp))));
+  await Promise.all((snap.employees || []).filter((e) => e?.managerId).map((emp) => upsertEmployee(emp)));
 
-  // 2) Attendance → 3) Leaves → 4) Payroll → 5) Openings → 6) Candidates.
-  for (const rec of snap.attendance || []) count('attendance', await upsertAttendance(rec));
-  for (const leave of snap.leaves || []) count('leaves', await upsertLeave(leave));
+  // 2) Attendance & 3) Leaves — independent of each other, run concurrently.
+  const [attRes, leaveRes] = await Promise.all([
+    Promise.all((snap.attendance || []).map((rec) => upsertAttendance(rec))),
+    Promise.all((snap.leaves || []).map((leave) => upsertLeave(leave))),
+  ]);
+  countAll('attendance', attRes);
+  countAll('leaves', leaveRes);
 
-  // Reimbursement claims fold into their payroll month ('YYYY-MM-DD' → 'YYYY-MM').
+  // 4) Payroll — reimbursement claims fold into their month ('YYYY-MM-DD' → 'YYYY-MM').
   const expensesByMonth = new Map();
   for (const ex of snap.expenses || []) {
     const month = String(ex?.date || '').slice(0, 7);
@@ -641,22 +651,23 @@ export async function runBootstrapSync() {
     if (!expensesByMonth.has(month)) expensesByMonth.set(month, []);
     expensesByMonth.get(month).push(ex);
   }
-  for (const run of snap.payroll || []) {
-    count('payroll', await upsertPayroll(run, { expenses: expensesByMonth.get(run.month) || [] }));
-  }
-  for (const opening of snap.openings || []) count('openings', await upsertOpening(opening));
-  for (const cand of snap.candidates || []) count('candidates', await upsertCandidate(cand));
+  countAll('payroll', await Promise.all((snap.payroll || []).map((run) =>
+    upsertPayroll(run, { expenses: expensesByMonth.get(run.month) || [] }))));
+
+  // 5) Openings BEFORE 6) candidates (candidates resolve positions by title).
+  countAll('openings', await Promise.all((snap.openings || []).map((o) => upsertOpening(o))));
+  countAll('candidates', await Promise.all((snap.candidates || []).map((c) => upsertCandidate(c))));
 
   // 7) Evening reports — silent catch-up, except a brand-new report for today
   //    (submitted while DDD was down) still notifies its reviewers.
   const today = startOfDay(new Date());
-  for (const report of snap.eveningReports || []) {
+  countAll('reports', await Promise.all((snap.eveningReports || []).map(async (report) => {
     const isToday = startOfDay(toLocalDate(report?.date) || 0).getTime() === today.getTime();
     const existed = report?.code
       ? Boolean(await DailyReport.exists({ externalId: report.code }))
       : true;
-    count('reports', await upsertEveningReport(report, { notify: isToday && !existed }));
-  }
+    return upsertEveningReport(report, { notify: isToday && !existed });
+  })));
 
   // 8) Reconcile deletions. The employees/leaves/openings/candidates lists are
   //    COMPLETE (the HRMS bootstrap sends every non-deleted row), so a mirror
@@ -667,49 +678,42 @@ export async function runBootstrapSync() {
   //    snapshots and are never reconciled.
   const removed = { employees: 0, leaves: 0, openings: 0, candidates: 0 };
 
-  if (Array.isArray(snap.employees) && snap.employees.length) {
-    // Guarded on a non-empty list so a malformed snapshot can never deactivate everyone.
-    const liveIds = snap.employees.map((e) => e?.empId).filter(Boolean);
-    const stale = await User.find({ source: 'hrms', hrmsId: { $nin: liveIds }, isActive: true });
-    for (const user of stale) {
-      user.isActive = false;
-      user.employmentStatus = 'exited';
-      user.dateOfExit = user.dateOfExit || new Date();
-      await user.save(); // soft-deactivate only — mirrors are never hard-deleted
-      removed.employees += 1;
-    }
-  }
-
-  if (Array.isArray(snap.leaves)) {
-    const liveCodes = snap.leaves.map((l) => l?.code).filter(Boolean);
-    removed.leaves = (
-      await LeaveRequest.deleteMany({
+  // Independent collections — reconcile all four concurrently. Each is guarded
+  // on Array.isArray so a missing list is skipped (employees also on non-empty,
+  // so a malformed snapshot can never wipe the whole directory).
+  const liveOf = (list, key) => (list || []).map((x) => x?.[key]).filter(Boolean);
+  await Promise.all([
+    (async () => {
+      if (!Array.isArray(snap.employees) || !snap.employees.length) return;
+      // Hard-delete every HRMS mirror absent from the snapshot (deleted in HRMS)
+      // — also purges legacy soft-deactivated "Disabled" ghosts. Exited-status
+      // employees stay (still in the snapshot).
+      const res = await User.deleteMany({ source: 'hrms', hrmsId: { $nin: liveOf(snap.employees, 'empId') } });
+      removed.employees = res.deletedCount;
+    })(),
+    (async () => {
+      if (!Array.isArray(snap.leaves)) return;
+      removed.leaves = (await LeaveRequest.deleteMany({
         source: 'hrms',
-        externalId: { $exists: true, $ne: null, $nin: liveCodes },
-      })
-    ).deletedCount;
-  }
-
-  if (Array.isArray(snap.openings)) {
-    const liveCodes = snap.openings.map((o) => o?.code).filter(Boolean);
-    removed.openings = (
-      await JobPosition.updateMany(
-        // Placeholder positions resolved from candidate titles carry no externalId — untouched.
-        { source: 'hrms', externalId: { $exists: true, $ne: null, $nin: liveCodes }, status: { $ne: 'closed' } },
+        externalId: { $exists: true, $ne: null, $nin: liveOf(snap.leaves, 'code') },
+      })).deletedCount;
+    })(),
+    (async () => {
+      if (!Array.isArray(snap.openings)) return;
+      // Placeholder positions resolved from candidate titles carry no externalId — untouched.
+      removed.openings = (await JobPosition.updateMany(
+        { source: 'hrms', externalId: { $exists: true, $ne: null, $nin: liveOf(snap.openings, 'code') }, status: { $ne: 'closed' } },
         { $set: { status: 'closed' } }
-      )
-    ).modifiedCount;
-  }
-
-  if (Array.isArray(snap.candidates)) {
-    const liveCodes = snap.candidates.map((c) => c?.code).filter(Boolean);
-    removed.candidates = (
-      await Candidate.deleteMany({
+      )).modifiedCount;
+    })(),
+    (async () => {
+      if (!Array.isArray(snap.candidates)) return;
+      removed.candidates = (await Candidate.deleteMany({
         sourceSystem: 'hrms',
-        externalId: { $exists: true, $ne: null, $nin: liveCodes },
-      })
-    ).deletedCount;
-  }
+        externalId: { $exists: true, $ne: null, $nin: liveOf(snap.candidates, 'code') },
+      })).deletedCount;
+    })(),
+  ]);
 
   await saveLastSyncAt(new Date());
 

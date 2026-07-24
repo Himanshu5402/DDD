@@ -230,6 +230,18 @@ export default function ProjectsOverviewPage() {
     queryFn: integrationsApi.pepsiStatus,
   });
 
+  // Portfolio "Contract value" mirrors the PEPSI dashboard headline: the sum of
+  // each CLIENT's contract value — not the sum of project values (which PEPSI
+  // labels "executing" and double-counts multi-project clients / includes
+  // one-off outliers). So DDD's headline matches PEPSI's ₹X Cr "in portfolio".
+  const customersQuery = useQuery({
+    queryKey: ['pepsi-customers-value'],
+    queryFn: async () => {
+      const res = await api.get('/rrrmas/contacts', { params: { type: 'customer', limit: 100 } });
+      return res.data.data;
+    },
+  });
+
   const pullMutation = useMutation({
     mutationFn: integrationsApi.pepsiPull,
     onSuccess: (res) => {
@@ -252,9 +264,17 @@ export default function ProjectsOverviewPage() {
   }, [qc]);
 
   const projects = projectsQuery.data || [];
+  const customers = useMemo(() => {
+    const raw = customersQuery.data;
+    return raw?.contacts || (Array.isArray(raw) ? raw : []);
+  }, [customersQuery.data]);
 
   const stats = useMemo(() => {
-    const total = projects.reduce((s, p) => s + (p.contractValue || 0), 0);
+    // Client (portfolio) contract value — matches PEPSI's dashboard headline.
+    // Falls back to the project sum only if no client values are available.
+    const clientTotal = customers.reduce((s, c) => s + (c.customFields?.pepsi?.contractValue || 0), 0);
+    const projectTotal = projects.reduce((s, p) => s + (p.contractValue || 0), 0);
+    const total = clientTotal > 0 ? clientTotal : projectTotal;
     const byHealth = { on_track: 0, at_risk: 0, critical: 0 };
     let progressSum = 0;
     projects.forEach((p) => {
@@ -263,11 +283,13 @@ export default function ProjectsOverviewPage() {
     });
     return {
       total,
+      basedOnClients: clientTotal > 0,
+      clientCount: customers.length,
       count: projects.length,
       byHealth,
       avgProgress: projects.length ? Math.round(progressSum / projects.length) : 0,
     };
-  }, [projects]);
+  }, [projects, customers]);
 
   return (
     <Box>
@@ -308,7 +330,11 @@ export default function ProjectsOverviewPage() {
 
       {/* Portfolio stats */}
       <Grid container spacing={2.5} sx={{ mb: 4 }}>
-        <StatCard label="Contract value" value={formatINR(stats.total)} hint={`${stats.count} projects`} />
+        <StatCard
+          label="Contract value"
+          value={formatINR(stats.total)}
+          hint={stats.basedOnClients ? `${stats.clientCount} clients in portfolio` : `${stats.count} projects`}
+        />
         <StatCard label="On track" value={stats.byHealth.on_track} color="success.main" />
         <StatCard label="At risk" value={stats.byHealth.at_risk} color="warning.main" />
         <StatCard label="Critical" value={stats.byHealth.critical} color="error.main" />
